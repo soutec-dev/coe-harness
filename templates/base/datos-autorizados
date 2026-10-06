@@ -1,0 +1,17 @@
+# .datos-autorizados — rutas del repo con datos de la organización cuya
+# inclusión fue AUTORIZADA por el responsable de la información (o fixtures
+# sintéticos que el check de datos sensibles confunde con datos reales).
+#
+# Una ruta o glob por línea, seguida de un comentario con quién autorizó, cuándo
+# y para qué. Lo edita el coordinador o el usuario con la autorización en mano;
+# el agente de Claude Code NUNCA agrega líneas aquí. Cambiar este archivo exige
+# revisión del coordinador (CODEOWNERS).
+#
+# Lo que figura aquí deja de hacer fallar el check `sin-datos-sensibles` de
+# scripts/check-pr-rules.mjs (hook reglas-pr y CI). El check de credenciales
+# (tokens, llaves, contraseñas) sigue aplicando igual: una autorización de datos
+# nunca autoriza un secreto.
+#
+# Ejemplos:
+# tests/fixtures/empleados-sinteticos.json   # datos sintéticos (faker), sin personas reales — @coordinador 2026-01-15
+# docs/muestras/clientes-demo.csv            # 10 clientes ficticios para la demo — autorizado por Nombre Apellido (Gerencia Comercial) el 2026-01-15

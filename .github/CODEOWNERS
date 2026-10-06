@@ -1,0 +1,23 @@
+# CODEOWNERS — quién revisa qué.
+# Sintaxis: <patrón>    @usuario_o_equipo. El último patrón que hace match gana:
+# lo más específico va al final. Usar equipos (@org/equipo) en vez de usuarios
+# individuales cuando existan.
+#
+# Reemplaza @ORGANIZACION/coordinacion por el equipo o usuario real del
+# proyecto. Mientras el nombre no exista, GitHub ignora la línea.
+
+# Por defecto, todo PR requiere revisión del coordinador del proyecto
+*       @ORGANIZACION/coordinacion
+
+# Documentación: cualquier integrante del equipo de desarrollo
+*.md    @ORGANIZACION/desarrollo
+/docs/  @ORGANIZACION/desarrollo
+
+# Superficie de seguridad del repo: siempre el coordinador
+/.github/                      @ORGANIZACION/coordinacion
+/.claude/                      @ORGANIZACION/coordinacion
+/scripts/check-pr-rules.mjs    @ORGANIZACION/coordinacion
+.datos-autorizados             @ORGANIZACION/coordinacion
+.env.example                   @ORGANIZACION/coordinacion
+docker-compose*.yml            @ORGANIZACION/coordinacion
+Dockerfile*                    @ORGANIZACION/coordinacion
