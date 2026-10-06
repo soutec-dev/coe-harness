@@ -102,9 +102,39 @@ export function protegeBranchMain({ cwd }) {
     )
     return { aplicado: true }
   } catch (err) {
-    ui.log.warn(
-      `No se pudo configurar la proteccion de "${RAMA_PROTEGIDA}" en ${repo} (falta permiso de admin en el repo?): ${err.message}`
-    )
+    const motivo = motivoDelFallo(err)
+    if (motivo === 'plan') {
+      ui.log.info(
+        `${repo} es un repo privado en un plan Free de GitHub, y GitHub no ofrece proteccion de ramas ahi: ` +
+          `"${RAMA_PROTEGIDA}" queda sin proteger del lado de GitHub. No hay nada que arreglar: el hook reglas-pr ` +
+          'sigue denegando los push a main desde la sesion. Para tener la proteccion tambien en GitHub, haz publico ' +
+          'el repo o pasa a GitHub Pro/Team y corre `coe-harness upgrade`.'
+      )
+    } else if (motivo === 'permiso') {
+      ui.log.warn(
+        `No se pudo configurar la proteccion de "${RAMA_PROTEGIDA}" en ${repo}: hace falta permiso de admin en el repo. ` +
+          'Pidele al coordinador que corra `coe-harness upgrade` o que la configure en Settings > Branches.'
+      )
+    } else {
+      ui.log.warn(`No se pudo configurar la proteccion de "${RAMA_PROTEGIDA}" en ${repo}: ${primeraLinea(err)}`)
+    }
     return { aplicado: false }
   }
+}
+
+// gh escribe el mensaje de la API en stderr ("gh: Upgrade to GitHub Pro or make
+// this repository public to enable this feature. (HTTP 403)"). Un repo privado
+// en un plan Free no es un error del harness ni un permiso que falte: GitHub no
+// ofrece branch protection en ese plan, y el mensaje tiene que decirlo tal cual
+// para que nadie salga a buscar un permiso que no existe.
+export function motivoDelFallo(err) {
+  const texto = `${err?.stderr ?? ''}\n${err?.message ?? ''}`
+  if (/upgrade to github (pro|team)|make this repository public/i.test(texto)) return 'plan'
+  if (/HTTP 403|HTTP 404|must have admin rights|resource not accessible/i.test(texto)) return 'permiso'
+  return 'otro'
+}
+
+function primeraLinea(err) {
+  const stderr = String(err?.stderr ?? '').trim()
+  return (stderr || String(err?.message ?? err)).split('\n')[0]
 }

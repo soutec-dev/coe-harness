@@ -19,8 +19,11 @@ Estas no se negocian, ni siquiera en un hotfix.
 
 - **Nunca `git push` a `main`.** `main` es producción. Nadie trabaja directo sobre
   `main` — tampoco el coordinador ni los administradores. El hook `reglas-pr`
-  deniega cualquier push cuyo destino sea `main` (o `master`), y la branch
-  protection de GitHub lo rechaza del otro lado.
+  deniega cualquier push cuyo destino sea `main` (o `master`) y, donde el plan de
+  GitHub lo permite (repos públicos, o privados en Pro/Team), la branch protection
+  lo rechaza del otro lado. En un repo privado de un plan Free esa protección no
+  existe: la regla se sostiene en el hook y en la revisión del coordinador, y
+  `init`/`upgrade` lo avisan en una línea sin que haya nada que arreglar.
 - **`main` solo recibe merges desde `dev`.** Las ramas de trabajo nacen de `dev` y su
   PR apunta a `dev`; el paso `dev` → `main` es el release, también por PR. Ninguna
   rama de trabajo mergea directo a `main`.

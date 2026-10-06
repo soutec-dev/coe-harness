@@ -6,7 +6,7 @@ import { buildBlock, upsertBlock, extractBlock, BEGIN } from '../src/core/block.
 import { seedMerge } from '../src/core/jsonmerge.js'
 import { lt } from '../src/core/lockfile.js'
 import { loadManifest, readTemplate } from '../src/core/manifest.js'
-import { cuerpoProteccion } from '../src/core/github-protect.js'
+import { cuerpoProteccion, motivoDelFallo } from '../src/core/github-protect.js'
 
 test('hash: CRLF y LF dan el mismo hash', () => {
   assert.equal(hashContent('a\r\nb\r\n'), hashContent('a\nb\n'))
@@ -116,4 +116,13 @@ test('github-protect: el cuerpo de la proteccion exige PR, el check reglas-pr y 
   assert.deepEqual(cuerpo.required_status_checks.checks, [{ context: 'reglas-pr' }])
   assert.equal(cuerpo.required_status_checks.strict, true)
   assert.ok(cuerpo.required_pull_request_reviews)
+})
+
+// Un repo privado en un plan Free no tiene branch protection: no es un permiso
+// que falte y el mensaje no puede mandar a nadie a buscarlo.
+test('github-protect: distingue la limitacion de plan Free del permiso faltante', () => {
+  assert.equal(motivoDelFallo({ stderr: 'gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)\n' }), 'plan')
+  assert.equal(motivoDelFallo({ stderr: 'gh: Must have admin rights to Repository. (HTTP 403)\n' }), 'permiso')
+  assert.equal(motivoDelFallo({ stderr: 'gh: Not Found (HTTP 404)\n' }), 'permiso')
+  assert.equal(motivoDelFallo({ message: 'spawnSync gh ETIMEDOUT' }), 'otro')
 })

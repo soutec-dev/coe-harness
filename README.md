@@ -22,7 +22,10 @@ Tres reglas duras, y nada más:
 npx github:soutec-dev/coe-harness#v1
 ```
 
-Sin registry, sin `.npmrc`, sin token. Solo hace falta git y Node ≥ 22.4.
+Sin registry, sin `.npmrc`, sin token. Hace falta git, Node ≥ 22.4 y GitHub CLI
+(`gh`) autenticado — lo usan la protección de `main` y los checks del PR en la
+sesión. Funciona con cuentas gratuitas de GitHub sin configurar nada (ver
+[GitHub Actions y planes de GitHub](#github-actions-y-planes-de-github)).
 
 ## Qué instala
 
@@ -136,7 +139,7 @@ vuelve a mencionarlos. La única referencia externa que queda es la URL de este
 repo, para `upgrade`. El porqué completo está en
 [docs/decisions/20261005-coe-harness-para-proyectos-externos.md](docs/decisions/20261005-coe-harness-para-proyectos-externos.md).
 
-## GitHub Actions
+## GitHub Actions y planes de GitHub
 
 El harness instala dos workflows y la skill `coe-github` prohíbe crear otros:
 
@@ -146,11 +149,25 @@ El harness instala dos workflows y la skill `coe-github` prohíbe crear otros:
   Node; en otros stacks la skill `harness-upgrade` guía al agente para escribir el
   equivalente.
 
+**Funciona con cuentas gratuitas de GitHub**, personales u organizaciones, sin
+configurar nada ni tomar decisiones al instalar:
+
+| | Repo público | Repo privado en plan Free | Repo privado en Pro / Team / Enterprise |
+|---|---|---|---|
+| Workflows `reglas-pr` y `tag-release` | Sí, sin límite de minutos | Sí, dentro de los 2.000 min/mes del plan (una corrida de `reglas-pr` gasta ~1 min) | Sí |
+| Protección de `main` desde `init`/`upgrade` | Sí | **GitHub no la ofrece en ese plan.** El harness lo detecta, lo dice en una línea y sigue: la regla la sostienen el hook `reglas-pr` en la sesión y la revisión del coordinador | Sí |
+| CODEOWNERS | Sí | GitHub lo ignora en ese plan; el archivo queda listo para cuando aplique | Sí |
+
+Lo único que cambia entre planes es si GitHub, además del hook, rechaza los push a
+`main` del otro lado. Para tener esa protección en un repo privado alcanza con pasar
+a GitHub Pro (cuentas personales) o Team (organizaciones), o hacer público el repo,
+y correr `coe-harness upgrade`.
+
 Si la organización necesita pausar Actions, se reemplaza el `on:` de cada workflow
 por `workflow_dispatch:` y se quita `reglas-pr` de los checks requeridos de `main`
-(`CHECKS_REQUERIDOS` en `src/core/github-protect.js`): el hook de la sesión sigue
-cubriendo el push y el PR, y los tags los crea el agente con
-`node scripts/tag-release.mjs --ref origin/main`.
+(`CHECKS_REQUERIDOS` en `src/core/github-protect.js`, y `coe-harness upgrade` lo
+reaplica): el hook de la sesión sigue cubriendo el push y el PR, y los tags los crea
+el agente con `node scripts/tag-release.mjs --ref origin/main`.
 
 ## Desarrollo
 

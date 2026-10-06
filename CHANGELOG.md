@@ -44,6 +44,10 @@ herramientas (tablero, trackers, monitor, modos). Ver
   y `tag-release.yml` (solo repos Node).
 - **`settings.json`** con deny de lectura de credenciales (repo y home), deny de
   push a `main` y de `gh pr merge/review`, `gh release` y `gh repo create/delete`.
+- **Cuentas gratuitas de GitHub**: `init`/`upgrade` distinguen la limitación de
+  plan (repo privado en Free, donde GitHub no ofrece branch protection) de un
+  permiso faltante y lo explican en una línea sin frenar nada; el README documenta
+  qué funciona en cada plan.
 - **Tests**: motor, CLI, checks, hook (contra repos git reales), tags,
   transferibilidad (ningún archivo emitido menciona herramientas internas) y
   dogfood (las copias locales son idénticas a las distribuidas).

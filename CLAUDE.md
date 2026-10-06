@@ -35,8 +35,10 @@ despliega).
 **Nunca** hagas commit, push ni merge directo a `main`. Todo pasa por rama + PR. Los
 hotfixes también. **`main` solo recibe merges desde `dev`**: las ramas de trabajo
 nacen de `dev` y su PR apunta a `dev`; el paso `dev` → `main` es el release, también
-por PR. El hook `reglas-pr` deniega cualquier `git push` a `main` desde la sesión, y
-la branch protection de GitHub lo rechaza del otro lado.
+por PR. El hook `reglas-pr` deniega cualquier `git push` a `main` desde la sesión y,
+donde el plan de GitHub lo permite (repos públicos, o privados en Pro/Team), la branch
+protection lo rechaza del otro lado; en un repo privado de un plan Free esa protección
+no existe y la regla se sostiene en el hook y en la revisión del coordinador.
 
 - Ramas: `tipo/<slug>` (`feature/captura-lead`). Tipos: `feature` `fix` `hotfix`
   `docs` `chore` `refactor` `experiment`. Si hay un ID rastreable de un tracker

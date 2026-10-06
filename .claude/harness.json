@@ -2,7 +2,7 @@
   "harness": "coe-harness",
   "harnessVersion": "1.0.0",
   "cliVersion": "1.0.0",
-  "installedAt": "2026-10-06T13:34:38.807Z",
+  "installedAt": "2026-10-06T14:32:16.531Z",
   "greenfield": false,
   "skills": [
     "adr-new",
@@ -73,7 +73,7 @@
     },
     ".claude/skills/coe-github/SKILL.md": {
       "policy": "managed",
-      "hash": "e261d443bd5ada90"
+      "hash": "1883d482373ae525"
     },
     ".claude/skills/datos-sensibles/SKILL.md": {
       "policy": "managed",
