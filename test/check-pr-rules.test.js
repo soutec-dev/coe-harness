@@ -248,9 +248,10 @@ test('escaneo: una linea larga patologica no cuelga el check, y las que superan 
   assert.match(r.detalle, /1 linea\(s\) de mas de 20000 caracteres sin escanear/)
 })
 
-test('excepcionesNuevas: los marcadores y las autorizaciones que llegan en el diff se listan como skip, no como OK', () => {
+test('excepcionesNuevas: los marcadores que eximen algo y las autorizaciones nuevas se listan como skip; mencionar el marcador no cuenta', () => {
   const texto = diffDe({
-    'src/a.js': ['const abc = "123" // coe:no-secreto (fixture)', 'const y = 2'],
+    'src/a.js': ['const token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ab" // coe:no-secreto (fixture)', 'const y = 2'], // coe:no-secreto (fixture)
+    'docs/guia.md': ['Si es un falso positivo, el usuario marca la linea con coe:no-secreto.'],
     '.datos-autorizados': ['# comentario', 'tests/fixtures/x.json  # sinteticos', ''],
   })
   const { marcadores, autorizaciones } = excepcionesNuevas(texto)

@@ -361,12 +361,27 @@ export function excepcionesNuevas(texto) {
     for (const { n, texto: l } of archivo.lineas) {
       if (archivo.ruta === '.datos-autorizados') {
         if (l.trim() && !l.trim().startsWith('#')) autorizaciones++
-      } else if (l.includes(MARCADOR_NO_SECRETO)) {
+      } else if (l.length <= MAX_LINEA && l.includes(MARCADOR_NO_SECRETO) && patronDeSecreto(l)) {
+        // Solo cuenta un marcador que exime algo de verdad; una linea que
+        // menciona el marcador (documentacion, este mismo script) no es una excepcion.
         marcadores.push({ ruta: archivo.ruta, n })
       }
     }
   }
   return { marcadores, autorizaciones }
+}
+
+// El primer patron de secreto que coincide en la linea, o null.
+function patronDeSecreto(l) {
+  for (const patron of PATRONES_SECRETO) {
+    if (patron.requiere && !l.includes(patron.requiere)) continue
+    const m = l.match(patron.re)
+    if (!m) continue
+    if (patron.contexto && !patron.contexto.test(l)) continue
+    if (patron.valor != null && !pareceSecreto(m[patron.valor])) continue
+    return patron.id
+  }
+  return null
 }
 
 // Secretos en las lineas agregadas de un diff. Devuelve { ruta, n, regla }.
@@ -377,15 +392,8 @@ export function escaneaSecretos(texto) {
     for (const { n, texto: l } of archivo.lineas) {
       if (l.length > MAX_LINEA) continue
       if (l.includes(MARCADOR_NO_SECRETO)) continue
-      for (const patron of PATRONES_SECRETO) {
-        if (patron.requiere && !l.includes(patron.requiere)) continue
-        const m = l.match(patron.re)
-        if (!m) continue
-        if (patron.contexto && !patron.contexto.test(l)) continue
-        if (patron.valor != null && !pareceSecreto(m[patron.valor])) continue
-        hallazgos.push({ ruta: archivo.ruta, n, regla: patron.id })
-        break
-      }
+      const regla = patronDeSecreto(l)
+      if (regla) hallazgos.push({ ruta: archivo.ruta, n, regla })
     }
   }
   return hallazgos

@@ -2,7 +2,7 @@
   "harness": "coe-harness",
   "harnessVersion": "1.0.0",
   "cliVersion": "1.0.0",
-  "installedAt": "2026-10-06T15:31:18.334Z",
+  "installedAt": "2026-10-06T15:41:17.488Z",
   "greenfield": false,
   "skills": [
     "adr-new",
@@ -57,7 +57,7 @@
     },
     "scripts/check-pr-rules.mjs": {
       "policy": "managed",
-      "hash": "4be06e1dc4566a50"
+      "hash": "06ba9fc2b97c1ae5"
     },
     ".github/workflows/reglas-pr.yml": {
       "policy": "managed",
