@@ -15,15 +15,46 @@ export function seedMerge(existing, seed) {
     } else if (isPlainObject(out[key]) && isPlainObject(value)) {
       out[key] = seedMerge(out[key], value)
     } else if (Array.isArray(out[key]) && Array.isArray(value)) {
-      // Union preservando el orden del usuario primero.
-      const seen = new Set(out[key].map((v) => JSON.stringify(v)))
-      for (const v of value) {
-        if (!seen.has(JSON.stringify(v))) out[key].push(v)
-      }
+      out[key] = unionDeArrays(out[key], value)
     }
     // Escalar ya presente -> se respeta el del usuario.
   }
   return out
+}
+
+// Union preservando el orden del usuario primero. Una entrada de hooks de
+// Claude Code se identifica por matcher + comandos: la del harness (mismo
+// matcher, mismo comando) es del harness, asi que en un upgrade la version
+// nueva (otro timeout, por ejemplo) reemplaza a la vieja en vez de sumarse como
+// una entrada mas, y las copias viejas duplicadas se funden. Un hook del
+// usuario tiene otro comando y se conserva tal cual.
+function unionDeArrays(existentes, semilla) {
+  const porClave = new Map(semilla.map((v) => [claveDe(v), v]))
+  const salida = []
+  const vistas = new Set()
+  for (const v of existentes) {
+    const clave = claveDe(v)
+    if (vistas.has(clave)) continue
+    vistas.add(clave)
+    salida.push(identidadDeHook(v) && porClave.has(clave) ? structuredClone(porClave.get(clave)) : v)
+  }
+  for (const v of semilla) {
+    const clave = claveDe(v)
+    if (vistas.has(clave)) continue
+    vistas.add(clave)
+    salida.push(structuredClone(v))
+  }
+  return salida
+}
+
+function claveDe(v) {
+  return identidadDeHook(v) ?? JSON.stringify(v)
+}
+
+export function identidadDeHook(v) {
+  if (!isPlainObject(v) || typeof v.matcher !== 'string' || !Array.isArray(v.hooks)) return null
+  const comandos = v.hooks.map((h) => (isPlainObject(h) ? `${h.type ?? ''}:${h.command ?? ''}` : JSON.stringify(h))).sort()
+  return JSON.stringify(['hook', v.matcher, comandos])
 }
 
 function isPlainObject(v) {

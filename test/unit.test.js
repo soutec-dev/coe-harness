@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import { hashContent, normalize } from '../src/core/hash.js'
 import { render, missingVars } from '../src/core/render.js'
 import { buildBlock, upsertBlock, extractBlock, BEGIN } from '../src/core/block.js'
-import { seedMerge } from '../src/core/jsonmerge.js'
+import { seedMerge, identidadDeHook } from '../src/core/jsonmerge.js'
 import { lt } from '../src/core/lockfile.js'
 import { loadManifest, readTemplate } from '../src/core/manifest.js'
 import { cuerpoProteccion, motivoDelFallo, fusionarProteccion, proteccionDev, sinProteccion } from '../src/core/github-protect.js'
@@ -78,6 +78,31 @@ test('seedMerge: los hooks del harness se suman a los del usuario y no se duplic
   assert.equal(una.hooks.PreToolUse.length, 1 + seed.hooks.PreToolUse.length)
   assert.deepEqual(una.hooks.PostToolUse, seed.hooks.PostToolUse)
   assert.deepEqual(seedMerge(una, seed), una, 'un segundo upgrade no cambia nada')
+})
+
+// Una entrada de hooks del harness que cambia (otro timeout) tiene que
+// reemplazar a la anterior en el upgrade, no sumarse: si no, el hook corre dos
+// veces por comando y la entrada vieja sigue viva. La identidad es matcher +
+// comando; los hooks del usuario tienen otro comando y no se tocan.
+test('seedMerge: una entrada de hooks del harness se reemplaza por identidad (matcher + comando) y las copias viejas se funden', () => {
+  const seed = JSON.parse(readTemplate('base/claude/settings.json'))
+  const comando = seed.hooks.PreToolUse[0].hooks[0].command
+  const vieja = (matcher, timeout) => ({ matcher, hooks: [{ type: 'command', command: comando, timeout }] })
+  const propio = { matcher: 'Edit', hooks: [{ type: 'command', command: 'node mi-hook.mjs' }] }
+  const user = {
+    hooks: {
+      PreToolUse: [propio, vieja('Bash', 90), vieja('PowerShell', 90), ...seed.hooks.PreToolUse],
+      PostToolUse: [vieja('Bash', 240), vieja('PowerShell', 240)],
+    },
+  }
+  const out = seedMerge(user, seed)
+  assert.deepEqual(out.hooks.PreToolUse, [propio, ...seed.hooks.PreToolUse])
+  assert.deepEqual(out.hooks.PostToolUse, seed.hooks.PostToolUse)
+  assert.equal(identidadDeHook(vieja('Bash', 90)), identidadDeHook(seed.hooks.PreToolUse[0]))
+  assert.notEqual(identidadDeHook(propio), identidadDeHook(seed.hooks.PreToolUse[0]))
+  assert.equal(identidadDeHook('Bash(git push:*)'), null)
+  // Las listas de permisos siguen siendo una union por valor.
+  assert.deepEqual(seedMerge({ permissions: { ask: ['X', 'X'] } }, { permissions: { ask: ['Y'] } }).permissions.ask, ['X', 'Y'])
 })
 
 test('lt: comparacion semver', () => {

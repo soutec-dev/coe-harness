@@ -1,11 +1,20 @@
 # 03 — Resumen de la remediación
 
-Un solo ciclo de remediación. Commit principal: `41100bf` (rama `dev`), más un
-ajuste menor posterior a la regla informativa `excepciones-nuevas` (ver al final).
-Suite tras la remediación: **149 tests, 149 pass** (`npm test`); `verify --strict`
-en verde; el propio check de secretos del harness sobre los commits en verde.
+Dos ciclos de remediación (la skill admite hasta tres). El primero (`41100bf` más
+un ajuste a `excepciones-nuevas`) cerró los hallazgos H-01 a H-14 del informe
+inicial; la revisión final del ciclo 1 encontró un High nuevo (N-01) y varios
+Medium/Low, y el segundo ciclo (`d9c52d8`, `1930816`, `3501be0`) los cerró. El
+detalle del segundo ciclo está en la sección "Segundo ciclo" al final. Suite tras
+el ciclo 2: **158 tests, 158 pass** (ver `04-test-evidence.md`).
 
-## Archivos modificados
+## Ciclo 1
+
+Commit principal: `41100bf` (rama `dev`), más un ajuste menor posterior a la regla
+informativa `excepciones-nuevas` (ver "Ajuste posterior"). Suite tras el ciclo 1:
+149 tests, 149 pass; `verify --strict` en verde; el propio check de secretos del
+harness sobre los commits en verde.
+
+## Archivos modificados (ciclo 1)
 
 | Archivo | Hallazgos | Cambio |
 |---|---|---|
@@ -76,3 +85,59 @@ ajustó para contar solo las líneas donde el marcador exime de verdad un hallaz
 (`patronDeSecreto(l)`), con su test (una mención en `.md` no cuenta; un token con
 marcador sí). Es un cambio de reporte, no de bloqueo; se registra aquí porque
 entró después de lanzada la revisión final.
+
+## Segundo ciclo — hallazgos de la revisión final del ciclo 1 (N-01 a N-13)
+
+Commits: `d9c52d8` (remediación principal, 22 archivos), `1930816` (N-10 y cierres
+de N-12), `3501be0` (regenera la copia dogfood del hook, que el commit anterior
+había dejado desfasada de su plantilla; el test de dogfood lo detectó). Suite tras
+el ciclo: 158 tests, 158 pass; `verify --strict` en verde; autocheck de secretos en
+verde sobre los tres commits; `npm audit --omit=dev` sin vulnerabilidades.
+
+| Hallazgo | Estado | Cambio |
+|---|---|---|
+| N-01 (High) caminos silenciosos a `main` | Cerrado | `reglas-pr.mjs`: el refspec `:`/`+:` se deniega como masivo; `queCambia()` marca los segmentos previos al push que cambian la rama, el remoto, la configuración o el entorno (`git checkout/switch/config/remote/branch/symbolic-ref/update-ref/worktree`, `export`, `set`, `VAR=…`, `$env:`, `SetEnvironmentVariable`) y los que cambian los commits (`git commit/merge/rebase/cherry-pick/am/apply/revert/stash/reset/pull/tag`) → `ask`; una asignación de entorno delante del propio push → `ask`; `argsDelEnsayo()` quita `-q`/`--quiet` (también dentro de un grupo corto) y el ensayo lleva `--verbose`; un ensayo con exit 0 sin `To` ni refs → `ask`; el retorno temprano sin cabezas se eliminó (el ensayo corre también para `--delete`); `pushesDelComando()` devuelve todos los `git push` del comando y `procesar` los evalúa todos (deny > ask > null). Costo asumido: `git commit … && git push` pide confirmación; la regla "el push va solo, en su propio comando" queda en la skill `coe-github` y en el `CLAUDE.md` distribuido |
+| N-02 opciones abreviadas y grupos cortos | Cerrado | Lista cerrada `LARGAS_CONOCIDAS` de opciones completas: lo desconocido o abreviado (`--recei=`, `--forc`) → `desconocidas` → `ask`, y no llega al ensayo; en grupos cortos cualquier `f` fuerza (deny), cualquier `o` es push-option (ask), letra desconocida → ask; `--force-with-lease`/`--force-if-includes` → `ask`; `--git-dir`/`--work-tree`/`--namespace` → `ask` (y `--git-dir` resuelve el repo); `--` termina las opciones |
+| N-03 sombra de `origin/dev` | Cerrado | `check-pr-rules.mjs`: `DEV_REMOTA = 'refs/remotes/origin/dev'` para `.datos-autorizados` y `refExiste`; `resuelveRef` → `refs/remotes/origin/<rama>`; test con `git tag origin/dev` |
+| N-04 presupuesto vs timeout | Cerrado | `PRESUPUESTO_MS = 100_000` en `prePush`: cada llamada se acota al tiempo restante y, agotado, devuelve `ask`; varios push del mismo comando comparten el presupuesto; timeouts de `settings.json` 120 s (PreToolUse) / 300 s (PostToolUse); `MAX_LINEA` 20 000 → 8 000. El escaneo sigue siendo una invocación por cabeza (acotada por el presupuesto) |
+| N-05 reglas sin espejo PowerShell | Cerrado | Cada regla `Bash(...)` de `settings.json` tiene su `PowerShell(...)` en deny/allow/ask; test que lo exige |
+| N-06 claves con prefijo | Cerrado | `(?<![A-Za-z0-9])` en lugar de `\b` y variante camelCase sensible a mayúsculas; tests `DB_PASSWORD=`, `MYSQL_ROOT_PASSWORD=`, `db_password:`, `smtpPassword =` (y `maxTokens`/`isTokenValid` no) |
+| N-07 GET fallido ≠ sin protección | Cerrado | `sinProteccion(err)` solo acepta 404/"Branch not protected"; otro error → no se hace PUT y el mensaje distingue plan/permiso/otro; `fusionarProteccion` conserva `app_id`, `bypass_pull_request_allowances`, `dismissal_restrictions.apps`, `lock_branch`, `block_creations`, `allow_fork_syncing` |
+| N-08 validación léxica de rutas | Cerrado | `destSeguro` rechaza `.git` en cualquier segmento sin distinguir mayúsculas; `apply.js` compara la ruta real del directorio padre (`realpathSync.native` del primer ancestro existente) y protege también `plan.dirs`; `verify` valida `manifest.dirs`; tests (`.GIT/HEAD`, symlink/junction hacia fuera, `dirs` fuera del repo) |
+| N-09 cuadraticidad bajo el tope | Mitigado (residual aceptado) | Tope de línea a 8 000 caracteres (~150 ms por línea con `@`/`://` frente a ~1,3 s a 19 000); la cuadraticidad bajo el tope persiste y, en el peor caso, degrada a `ask`, nunca a silencio. Documentado en README |
+| N-10 última URL y host | Cerrado | `prDeEsteRepo` compara `host/owner/repo` (`repoDeUrl` normaliza https, ssh:// y `git@host:`); el PostToolUse toma la primera URL propia de la salida |
+| N-11 formas de `gh api` | Cerrado | `ask` para `gh api -X*`, `--method*`, `-f*`, `-F*`, `--field*`, `--raw-field*`, `--input*` y sus espejos PowerShell |
+| N-12 residuales | Cerrado en parte | `OWNER` del lockfile dogfood → `soutec-dev`; `npm-shrinkwrap.json` fija las transitivas para `npx github:`; README documenta el alcance de las cuentas admin y la recomendación de 2FA. **No** se deniega `Edit` sobre `templates/base/**` en este repo: es la fuente que mantienen los desarrolladores del harness y la revisión del PR es el control (riesgo aceptado). Los tags llegan con el release (H-15) |
+| N-13 (Info) conjunto "sin pushear" | Abierto, aceptado | Un `update-ref`/`fetch .` sobre `refs/remotes/origin/*` encoge el conjunto escaneado; requiere comandos que no forman parte del flujo y CI vuelve a escanear el PR. Mejora futura anotada: comparar contra `git ls-remote origin` cuando haya red |
+
+### Pruebas agregadas en el ciclo 2
+
+- `test/hook-reglas-pr.test.js`: `:`/`+:` masivos; `-4fu`; `--force-with-lease`
+  como reescritura; opciones abreviadas/desconocidas y `-uo`; `--`; `entorno`;
+  `--git-dir`/`--work-tree`; `cambiosPrevios` (checkout, commit, merge, export,
+  `$env:`); varios push por comando; `argsDelEnsayo`; el ensayo corre sin cabezas;
+  `-q` fuera del ensayo y porcelain vacío ⇒ `ask`; nueve formas de duda ⇒ `ask`;
+  secreto con destino dudoso ⇒ `deny`; presupuesto agotado ⇒ `ask` y timeouts
+  acotados; `procesar` con dos push (deny > ask > null); hook real: `git push origin
+  :`, `fix/algo && HEAD:main`, `--recei=`, variable de entorno, `git checkout main
+  &&`, `git commit &&`, `--force-with-lease`, `$env:` en PowerShell ⇒ `ask`/`deny`;
+  rama al día y `-q` ⇒ pasan; `-q`/`--quiet` con upstream en `main` ⇒ `deny`;
+  `prDeEsteRepo`/`repoDeUrl` con host.
+- `test/check-pr-rules.test.js`: tope 8 000; claves con prefijo y camelCase; tag
+  `origin/dev` sombra ⇒ FAIL se mantiene.
+- `test/unit.test.js`: `fusionarProteccion` conserva `app_id`, bypass, `lock_branch`,
+  `block_creations`; `sinProteccion`; `destSeguro` con `.GIT` en cualquier segmento;
+  espejo PowerShell de cada regla y de los matchers.
+- `test/verify.test.js`: `manifest.dirs` inseguro. `test/migrate.test.js`: `dirs`
+  fuera del repo y symlink/junction hacia fuera ⇒ bloqueados.
+
+### Riesgos residuales tras el ciclo 2
+
+- Los del ciclo 1 que siguen vigentes (H-05 con 0 aprobaciones, H-09 tag móvil,
+  alias de git y `pre-push` del desarrollador, palabras de ejemplo en H-12).
+- N-09 (cuadraticidad bajo el tope, degrada a `ask`), N-12 parcial (`Edit` sobre la
+  fuente de las plantillas en este repo) y N-13 (refs locales bajo
+  `refs/remotes/origin/*`), con las condiciones de arriba.
+- Fricción asumida: un comando que encadena `git commit` (o un cambio de rama) con
+  `git push` pide confirmación. Es deliberado: el hook solo puede garantizar lo que
+  ve en el momento en que corre.

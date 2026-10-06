@@ -37,12 +37,16 @@ Estas no se negocian, ni siquiera en un hotfix.
 - **Nunca `git push --all` ni `--mirror`**: suben `main` y ramas que nadie revisó.
 - **Solo se pushea a `origin`.** El hook deniega cualquier push a otro remoto o
   a una URL; si de verdad hace falta, lo hace el usuario a mano.
-- **El `git push` va solo, en su propio comando.** Nada de `git commit … && git
-  push` ni `git switch … && git push`: el hook escanea los commits que existen
-  cuando corre y ensaya el push con la rama actual, así que un commit o un cambio
-  de rama en el mismo comando lo dejan ciego y pide confirmación. Primero el
-  commit (o el cambio de rama), después `git push -u origin <rama>` a secas, sin
-  `-q`, sin variables de entorno delante y sin opciones abreviadas.
+- **El `git push` va solo, en su propio comando, en su forma canónica.** Nada de
+  `git commit … && git push` ni `git switch … && git push`: el hook escanea los
+  commits que existen cuando corre y ensaya el push con la rama actual, así que un
+  commit o un cambio de rama en el mismo comando lo dejan ciego y pide
+  confirmación. Primero el commit (o el cambio de rama), después `git push -u
+  origin <rama>` a secas (si hace falta, `cd <ruta literal> && git push -u origin
+  <rama>` o `git -C <ruta> push -u origin <rama>`), sin `-q`, sin variables de
+  entorno delante, sin opciones abreviadas, sin envoltorios (`env`, `sh -c`,
+  `timeout`), sin variables en lugar del subcomando (`git $s`), sin alias de git y
+  sin rutas con `$PWD`: nada de eso se puede analizar y pide confirmación.
 - **Si el hook pide confirmación, no confirmes a ciegas.** Lo hace cuando no
   puede resolver con certeza a dónde va el push ni qué lleva (caracteres que
   expande el shell, `git -c`, variables de entorno, `--no-verify`, opciones

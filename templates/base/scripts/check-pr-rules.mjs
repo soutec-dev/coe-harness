@@ -202,9 +202,10 @@ const MAX_EMAILS = 8
 // Archivos generados o compactados donde las heuristicas solo hacen ruido.
 const SIN_ESCANEO_DE_CONTENIDO = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Cargo\.lock|poetry\.lock|Gemfile\.lock|go\.sum)$|\.(min\.js|min\.css|map|svg|lock)$/
 // Una linea mas larga que esto (minificados, blobs embebidos) no se escanea:
-// las regex de correos y URLs son cuadraticas en lineas asi (unos 150 ms a
-// 8 000 caracteres, ~1 s a 20 000) y un diff con muchas agotaria el tiempo del
-// hook, que entonces solo podria pedir confirmacion. Se cuenta y se avisa.
+// las regex de correos y URLs son cuadraticas en lineas asi (unos 320 ms por
+// linea de 8 000 caracteres con "@" y "://", ~1,3 s a 20 000), asi que un diff
+// con mas de ~100 lineas largas por cabeza agota los 45 s del escaneo y el
+// hook pide confirmacion (nunca deja pasar). Se cuenta y se avisa.
 const MAX_LINEA = 8_000
 
 export function luhn(digitos) {

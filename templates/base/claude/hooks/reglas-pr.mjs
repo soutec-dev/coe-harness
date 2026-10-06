@@ -9,24 +9,29 @@
 //                                          (tambien si lo borra), si es
 //                                          --force/-f/+refspec, --all/--mirror o
 //                                          el refspec ":" (matching), si el
-//                                          remoto no es origin, o si el grupo
-//                                          secretos (credenciales y datos
+//                                          remoto no es origin (por nombre o por
+//                                          la URL real a la que iria), o si el
+//                                          grupo secretos (credenciales y datos
 //                                          sensibles) falla sobre los commits
 //                                          que subiria. Despues le pide a git
 //                                          que ENSAYE el push (--dry-run) y
 //                                          deniega si el destino real es main.
-//                                          Cuando no puede resolver con certeza
-//                                          a donde va el push o que lleva
-//                                          (metacaracteres del shell, `git -c`,
-//                                          variables de entorno, opciones
-//                                          desconocidas o abreviadas, un comando
-//                                          previo que cambia la rama, la
-//                                          configuracion o los commits, o git no
-//                                          pudo ensayarlo) PIDE CONFIRMACION:
-//                                          nunca deja pasar en silencio lo que
-//                                          no pudo verificar, y lo mismo si se
-//                                          le agota el tiempo. Revisa todos los
-//                                          push del comando, no solo el primero.
+//                                          Todo lo que no puede analizar con
+//                                          certeza PIDE CONFIRMACION, nunca pasa
+//                                          en silencio: metacaracteres del
+//                                          shell, `git -c`, variables de
+//                                          entorno, opciones desconocidas o
+//                                          abreviadas, un comando previo que
+//                                          cambia la rama, la configuracion, el
+//                                          entorno o los commits (`source`,
+//                                          funciones, alias incluidos), una
+//                                          carpeta que no puede resolver, un
+//                                          `git` envuelto en otro programa o
+//                                          con subcomando no literal, un alias
+//                                          de git, `git push` dentro de una
+//                                          cadena o un script, un ensayo que
+//                                          falla, o quedarse sin tiempo.
+//                                          Revisa todos los push del comando.
 //   PostToolUse · gh pr create / edit   -> los tres grupos contra el PR (solo si
 //                                          el PR es de este repo), un comentario
 //                                          con el resultado en el PR (la
@@ -40,7 +45,7 @@
 //                                          hook no corrio.
 //
 // Es un hook de Claude Code, no un git hook. No hace nada en repos sin
-// scripts/check-pr-rules.mjs, ni con comandos que no son push ni PR.
+// scripts/check-pr-rules.mjs, ni con comandos que no tocan git.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -55,6 +60,7 @@ const MARCA = '<!-- coe-harness:reglas-pr -->'
 const LIMITE_SALIDA = 60_000
 const MAX_AVISOS = 20
 const RAMAS_PROTEGIDAS = ['main', 'master']
+const RAMA_INTEGRACION = 'dev'
 const REMOTO_PERMITIDO = 'origin'
 // Presupuesto de reloj del PreToolUse, por debajo del timeout del hook en
 // settings.json (120 s): un hook que la plataforma cancela por timeout NO
@@ -160,7 +166,13 @@ export function palabras(segmento, shell = 'bash') {
 
 const ES_GIT = /(^|[\\/])git(\.exe)?$/i
 const ES_GH = /(^|[\\/])gh(\.exe)?$/i
-const ES_CD = /^(cd|pushd|chdir|set-location|sl)$/i
+const ES_CD = /^(cd|chdir|set-location|sl)$/i
+const ES_PUSHD = /^(pushd|push-location|pushl)$/i
+const ES_POPD = /^(popd|pop-location|popl)$/i
+// Programas que ejecutan lo que les sigue: `env git push`, `timeout 60 git
+// push`, `cmd /c git push`, `sudo git push`...
+const ENVOLTORIOS =
+  /^(env|command|exec|builtin|nice|time|timeout|sudo|doas|nohup|stdbuf|xargs|winpty|unbuffer|caffeinate|watch|flock|ionice|chrt|taskset|strace|ltrace|hyperfine|retry|cmd|cmd\.exe|start|start-process|saps|start-job|sajb|invoke-command|icm|powershell|pwsh|bash|sh|zsh|dash|ksh)$/i
 // Opciones globales de git que llevan valor aparte (`git -C dir push`).
 const GLOBALES_CON_VALOR = ['-C', '-c', '--git-dir', '--work-tree', '--namespace']
 // Opciones de `git push` que el hook conoce, escritas completas. git acepta
@@ -185,6 +197,9 @@ const OPCIONES_DE_REESCRITURA = /^(--force-with-lease(=.*)?|--force-if-includes)
 // Metacaracteres que el shell expande antes de que git vea el comando: el hook
 // ve el texto crudo y no puede saber en que ref terminan.
 const METACARACTERES = /[$`{}*?[\]]/
+// Una palabra que el shell resuelve en tiempo de ejecucion (variable,
+// sustitucion, comodin, splatting): no es un subcomando ni una ruta literal.
+const NO_LITERAL = /[$`{}()*?[\]%@]/
 // Lo que, ejecutado antes del push en el mismo comando, cambia la rama actual,
 // el remoto o la configuracion con la que git va a resolver el destino: el hook
 // ensaya con el estado de AHORA, no con el de despues.
@@ -192,194 +207,342 @@ const CAMBIA_DESTINO = /^(checkout|switch|config|remote|branch|symbolic-ref|upda
 // Lo que cambia los commits que el push subiria: el escaneo de secretos solo
 // ve los commits que ya existen cuando corre el hook.
 const CAMBIA_CONTENIDO = /^(commit|merge|rebase|cherry-pick|am|apply|revert|stash|reset|pull|tag)$/
-const ASIGNA_ENTORNO = /^(export|set|setx|declare|typeset|env)$|^Set-Item$/i
+// Lo que carga o define cosas que el hook no ve: archivos de entorno, alias,
+// funciones de shell (una funcion `git` reemplaza al git real).
+const CARGA_ENTORNO =
+  /^(source|\.|eval|exec|alias|unalias|set-alias|sal|new-alias|nal|remove-alias|invoke-expression|iex|function|filter|set-variable|sv|new-variable|nv|set-item|si|import-module|ipmo)$/i
+const ASIGNA_ENTORNO = /^(export|set|setx|declare|typeset|env)$/i
 const ASIGNACION = /^\s*[A-Za-z_][A-Za-z0-9_]*=/
+const VARIABLE_POWERSHELL = /^\s*\$[\w:]+\s*=/
 const ENTORNO_POWERSHELL = /^\s*\$env:|SetEnvironmentVariable/i
+const DEFINE_FUNCION = /^\s*(function\s+[\w.:-]+|[\w.-]+\s*\(\s*\))/i
+// `git push` en cualquier parte del texto: dentro de una cadena (`sh -c 'git
+// push'`), de un script, de una asignacion (`cmd="git push"`), de un
+// `Invoke-Expression`... El hook no puede analizarlo, asi que lo marca.
+const MENCIONA_GIT_PUSH = /(?:^|[^\w.-])git(?:\.exe)?["')\]]*\s+(?:-{1,2}[\w=./:\\-]*\s+)*["'(]*push(?![\w-])/i
 
-function carpetaTrasCd(actual, destino) {
-  if (!destino || destino === '-') return actual
-  const expandido = destino === '~' || destino.startsWith('~/') ? path.join(os.homedir(), destino.slice(1)) : destino
-  return path.resolve(actual, expandido)
+const recorte = (s) => (s.length > 60 ? `${s.slice(0, 57)}...` : s)
+
+// --- Carpetas: cd, pushd/popd, rutas POSIX en Windows -----------------------
+
+function rutaAbsolutaDePosix(ruta) {
+  if (process.platform !== 'win32') return ruta
+  const m = ruta.match(/^\/(?:cygdrive\/)?([a-zA-Z])(?:\/(.*))?$/)
+  if (m) return `${m[1].toUpperCase()}:\\${(m[2] ?? '').replace(/\//g, '\\')}`
+  return null // /tmp, /usr: rutas de MSYS que el hook no sabe traducir
+}
+
+// Resuelve `destino` contra `base`. Devuelve { ruta } o { motivo } cuando el
+// hook no puede saber a que carpeta apunta (variables, comodines, rutas POSIX
+// sin traduccion, base desconocida).
+function resuelveRuta(base, destino) {
+  if (!destino) return { motivo: 'carpeta vacia' }
+  if (NO_LITERAL.test(destino) || destino.startsWith('~-')) return { motivo: `no puedo resolver la carpeta \`${destino}\`` }
+  let ruta = destino
+  if (ruta === '~' || ruta.startsWith('~/') || ruta.startsWith('~\\')) ruta = path.join(os.homedir(), ruta.slice(1))
+  else if (ruta.startsWith('~')) return { motivo: `no puedo resolver la carpeta \`${destino}\`` }
+  if (ruta.startsWith('/') && process.platform === 'win32') {
+    const traducida = rutaAbsolutaDePosix(ruta)
+    if (!traducida) return { motivo: `no puedo traducir la ruta POSIX \`${destino}\`` }
+    ruta = traducida
+  }
+  if (!path.isAbsolute(ruta) && base == null) return { motivo: `no se desde que carpeta se resuelve \`${destino}\`` }
+  return { ruta: path.isAbsolute(ruta) ? path.normalize(ruta) : path.resolve(base, ruta) }
+}
+
+// Estado de carpetas a lo largo del comando: la actual, la anterior (cd -), la
+// pila de pushd/popd, y el motivo por el que dejo de ser resoluble (si paso).
+function carpetasDesde(cwd) {
+  return { actual: cwd, anterior: null, pila: [], motivo: null }
+}
+
+function mueve(carpetas, ruta) {
+  carpetas.anterior = carpetas.actual
+  carpetas.actual = ruta
+  carpetas.motivo = null
+}
+
+function pierde(carpetas, motivo) {
+  carpetas.anterior = carpetas.actual
+  carpetas.actual = null
+  carpetas.motivo = motivo
+}
+
+function aplicaCd(carpetas, p, segmento) {
+  if (ES_POPD.test(p[0])) {
+    const previa = carpetas.pila.pop()
+    if (previa === undefined) return pierde(carpetas, `\`${recorte(segmento)}\` sin pushd previo en el mismo comando`)
+    if (previa === null) return pierde(carpetas, `\`${recorte(segmento)}\` vuelve a una carpeta que no pude resolver`)
+    return mueve(carpetas, previa)
+  }
+  const args = p.slice(1)
+  const destino = args.find((x) => x === '-' || !x.startsWith('-'))
+  if (ES_PUSHD.test(p[0])) {
+    if (destino === undefined) return pierde(carpetas, `\`${recorte(segmento)}\` sin carpeta intercambia la pila`)
+    carpetas.pila.push(carpetas.actual)
+  }
+  if (destino === undefined) return mueve(carpetas, os.homedir())
+  if (destino === '-') {
+    if (!carpetas.anterior) return pierde(carpetas, '`cd -` sin una carpeta anterior conocida')
+    return mueve(carpetas, carpetas.anterior)
+  }
+  const r = resuelveRuta(carpetas.actual, destino)
+  if (r.motivo) return pierde(carpetas, r.motivo)
+  mueve(carpetas, r.ruta)
+}
+
+// --- Invocaciones de git ----------------------------------------------------
+
+// Indice del token `git` que actua como comando en un segmento, o -1. Un git
+// envuelto (`env git push`, `timeout 60 git push`, `cmd /c git push`) cuenta;
+// la palabra git como argumento de otra cosa (`grep git docs/`) no.
+function indiceDeGit(p) {
+  const k = p.findIndex((w) => ES_GIT.test(w))
+  if (k <= 0) return k
+  const previa = p[k - 1] ?? ''
+  const envuelto =
+    ENVOLTORIOS.test(p[0]) || ENVOLTORIOS.test(previa) || (/^\d+[smhd]?$/.test(previa) && ENVOLTORIOS.test(p[k - 2] ?? ''))
+  return p[k + 1] === 'push' || envuelto ? k : -1
+}
+
+// Opciones globales de git (-C, -c, --git-dir...) a partir de `desde`.
+function globalesDeGit(p, desde, carpetas) {
+  let i = desde
+  let dir = carpetas.actual
+  let motivo = carpetas.motivo
+  let rutaDeGit = false
+  const configs = []
+  while (i < p.length && p[i].startsWith('-')) {
+    const [opcion, valorPegado] = p[i].includes('=') ? [p[i].slice(0, p[i].indexOf('=')), p[i].slice(p[i].indexOf('=') + 1)] : [p[i], null]
+    const valor = valorPegado ?? p[i + 1] ?? ''
+    const consume = valorPegado == null && GLOBALES_CON_VALOR.includes(opcion) ? 2 : 1
+    if (opcion === '-C') {
+      const r = resuelveRuta(dir, valor)
+      if (r.motivo) {
+        dir = null
+        motivo = r.motivo
+      } else {
+        dir = r.ruta
+      }
+    } else if (opcion === '-c') {
+      configs.push(valor)
+    } else if (opcion === '--git-dir') {
+      // El repo es el del .git indicado, no el del cwd.
+      rutaDeGit = true
+      const r = resuelveRuta(dir, valor)
+      if (r.motivo) {
+        dir = null
+        motivo = r.motivo
+      } else {
+        dir = path.basename(r.ruta).toLowerCase() === '.git' ? path.dirname(r.ruta) : r.ruta
+      }
+    } else if (opcion === '--work-tree' || opcion === '--namespace') {
+      rutaDeGit = true
+    }
+    i += consume
+  }
+  return { i, dir, motivo, rutaDeGit, configs }
 }
 
 // Que cambia un segmento previo al push: 'destino' (rama actual, remoto,
-// configuracion o entorno), 'contenido' (los commits) o null.
+// configuracion, entorno, funciones o alias), 'contenido' (los commits) o null.
 export function queCambia(segmento, shell = 'bash') {
   const s = segmento.trim()
-  if (ASIGNACION.test(s) || ENTORNO_POWERSHELL.test(s)) return 'destino'
+  if (ASIGNACION.test(s) || VARIABLE_POWERSHELL.test(s) || ENTORNO_POWERSHELL.test(s) || DEFINE_FUNCION.test(s)) return 'destino'
   const q = palabras(segmento, shell)
   if (!q.length) return null
-  if (ES_GIT.test(q[0])) {
-    let k = 1
-    while (k < q.length && q[k].startsWith('-')) k += GLOBALES_CON_VALOR.includes(q[k]) ? 2 : 1
-    const sub = q[k] ?? ''
+  const k = indiceDeGit(q)
+  if (k !== -1) {
+    // Una invocacion de git (envuelta o no) se juzga por su subcomando.
+    const g = globalesDeGit(q, k + 1, carpetasDesde(null))
+    if (g.configs.some((c) => /^alias\./i.test(c))) return 'destino'
+    const sub = q[g.i]
+    if (sub == null || NO_LITERAL.test(sub)) return 'destino'
     if (CAMBIA_DESTINO.test(sub)) return 'destino'
     if (CAMBIA_CONTENIDO.test(sub)) return 'contenido'
     return null
   }
-  return ASIGNA_ENTORNO.test(q[0]) ? 'destino' : null
+  if (CARGA_ENTORNO.test(q[0])) return 'destino'
+  if (ASIGNA_ENTORNO.test(q[0])) {
+    // `set -e`, `set -o pipefail`: opciones del shell. Solo `set X=1` (cmd) asigna.
+    if (q[0].toLowerCase() === 'set' && !q.slice(1).some((a) => a.includes('='))) return null
+    return 'destino'
+  }
+  return MENCIONA_GIT_PUSH.test(s) ? 'destino' : null
 }
 
-const recorte = (s) => (s.length > 60 ? `${s.slice(0, 57)}...` : s)
-
-// Todos los `git push` del comando, en orden, cada uno con lo que subiria
-// segun su texto. `cabezas`: revs cuyos commits sin pushear hay que revisar.
-// `destinos`: refs remotas a las que apunta cada refspec ('HEAD' = la rama
-// actual, se resuelve despues con git). `borrados`: refs que el push borraria.
-// `remoto`: el nombre o URL dado, o null. `configs`: valores de `git -c`.
-// `riesgosas`, `reescritura` y `desconocidas`: opciones que el hook no
-// resuelve, que reescriben historia o que no reconoce (abreviadas incluidas).
-// `cambiosPrevios`: segmentos anteriores que cambian la rama, la
-// configuracion, el entorno o los commits. `entorno`: variables delante del
-// propio push. `rutaDeGit`: usa --git-dir/--work-tree/--namespace.
-// `metacaracteres`: el segmento tiene caracteres que expande el shell. `args`:
-// todo lo que sigue a `push`, para que git lo ensaye tal cual.
-export function pushesDelComando(comando, cwd, shell = 'bash') {
-  let carpeta = cwd
+// Todas las invocaciones de git del comando (push o no), en orden, con su
+// contexto, y las `sospechas`: segmentos que el hook no puede analizar y que
+// podrian ser un push (subcomando no literal, `git push` dentro de una cadena
+// o un script, comando no literal).
+export function invocacionesDeGit(comando, cwd, shell = 'bash') {
+  const carpetas = carpetasDesde(cwd)
   const previos = []
-  const pushes = []
+  const invocaciones = []
+  const sospechas = []
   for (const segmento of segmentos(comando, shell)) {
     const p = palabras(segmento, shell)
-    if (ES_CD.test(p[0] ?? '')) {
-      carpeta = carpetaTrasCd(carpeta, p.slice(1).find((x) => !x.startsWith('-')))
+    // Una asignacion sola (`cmd="git push origin main"`) tambien cuenta.
+    const k = p.length ? indiceDeGit(p) : -1
+    if (p.length && (ES_CD.test(p[0]) || ES_PUSHD.test(p[0]) || ES_POPD.test(p[0]))) {
+      aplicaCd(carpetas, p, segmento)
       continue
     }
-    if (!ES_GIT.test(p[0] ?? '')) {
+    if (k === -1) {
+      if (MENCIONA_GIT_PUSH.test(segmento)) sospechas.push(`\`${recorte(segmento)}\` menciona \`git push\` dentro de una cadena, un script o un envoltorio que no puedo analizar`)
+      else if (p.length && /^[$%`]/.test(p[0])) sospechas.push(`\`${recorte(segmento)}\`: el comando no es literal`)
       previos.push(segmento)
       continue
     }
-
-    let i = 1
-    let dir = carpeta
-    let rutaDeGit = false
-    const configs = []
-    while (i < p.length && p[i].startsWith('-')) {
-      const [opcion, valorPegado] = p[i].includes('=') ? [p[i].slice(0, p[i].indexOf('=')), p[i].slice(p[i].indexOf('=') + 1)] : [p[i], null]
-      const valor = valorPegado ?? p[i + 1] ?? ''
-      const consume = valorPegado == null && GLOBALES_CON_VALOR.includes(opcion) ? 2 : 1
-      if (opcion === '-C') {
-        dir = path.resolve(dir, valor || '.')
-      } else if (opcion === '-c') {
-        configs.push(valor)
-      } else if (opcion === '--git-dir') {
-        // El repo es el del .git indicado, no el del cwd.
-        rutaDeGit = true
-        const gitDir = path.resolve(dir, valor || '.')
-        dir = path.basename(gitDir).toLowerCase() === '.git' ? path.dirname(gitDir) : gitDir
-      } else if (opcion === '--work-tree' || opcion === '--namespace') {
-        rutaDeGit = true
-      }
-      i += consume
-    }
-    if (p[i] !== 'push') {
-      previos.push(segmento)
-      continue
-    }
-
-    const args = p.slice(i + 1)
-    const posicionales = []
-    const extra = []
-    const riesgosas = []
-    const reescritura = []
-    const desconocidas = []
-    let forzado = false
-    let masivo = false
-    let borrar = false
-    for (let j = 0; j < args.length; j++) {
-      const arg = args[j]
-      if (arg === '--') {
-        posicionales.push(...args.slice(j + 1))
-        break
-      }
-      if (arg === '--delete' || arg === '-d') {
-        borrar = true
-        continue
-      }
-      if (arg.startsWith('--')) {
-        const nombre = arg.split('=')[0]
-        if (!LARGAS_CONOCIDAS.has(nombre)) desconocidas.push(arg)
-        if (nombre === '--force') forzado = true
-        if (nombre === '--tags' || nombre === '--follow-tags') extra.push('--tags')
-        if (nombre === '--all' || nombre === '--branches') {
-          extra.push('--branches')
-          masivo = true
-        }
-        if (nombre === '--mirror') {
-          extra.push('--branches', '--tags')
-          masivo = true
-        }
-        if (OPCIONES_RIESGOSAS.test(arg)) riesgosas.push(arg)
-        if (OPCIONES_DE_REESCRITURA.test(arg)) reescritura.push(arg)
-        if (OPCIONES_PUSH_CON_VALOR.has(arg)) j++
-        continue
-      }
-      if (arg.startsWith('-') && arg.length > 1) {
-        // Grupo de flags cortos: -uf, -4f, -fu... cualquiera con "f" fuerza y
-        // cualquiera con "o" lleva una push-option que el hook no resuelve.
-        const letras = arg.slice(1).split('')
-        if (letras.includes('f')) forzado = true
-        if (letras.includes('o')) riesgosas.push(arg)
-        if (letras.includes('d')) borrar = true
-        if (letras.some((l) => !CORTAS_CONOCIDAS.has(l))) desconocidas.push(arg)
-        if (OPCIONES_PUSH_CON_VALOR.has(arg)) j++
-        continue
-      }
-      posicionales.push(arg)
-    }
-    const remoto = posicionales[0] ?? null
-    const refspecs = posicionales.slice(1)
-    const cabezas = []
-    const destinos = []
-    const borrados = []
-    for (const refspec of refspecs) {
-      const sinMas = refspec.replace(/^\+/, '')
-      if (sinMas === ':') {
-        // "matching": todas las ramas locales que ya existen en el remoto, main incluida.
-        masivo = true
-        extra.push('--branches')
-        continue
-      }
-      if (borrar) {
-        borrados.push(sinMas.split(':').pop())
-        continue
-      }
-      if (sinMas.startsWith(':')) {
-        borrados.push(sinMas.slice(1)) // borrar la rama remota
-        continue
-      }
-      if (refspec.startsWith('+')) forzado = true
-      const [origen, destinoExplicito] = sinMas.split(':')
-      const src = origen === '' || origen === '@' ? 'HEAD' : origen
-      cabezas.push(src)
-      destinos.push(destinoExplicito ?? src)
-    }
-    // Sin refspec, push de la rama actual; --tags solo, en cambio, no la sube.
-    if (!borrar && refspecs.length === 0 && !extra.includes('--branches') && !(extra.includes('--tags') && !args.includes('--follow-tags'))) {
-      cabezas.push('HEAD')
-      destinos.push('HEAD')
-    }
-    cabezas.push(...extra)
-    pushes.push({
-      dir,
-      args,
-      remoto,
-      configs,
-      riesgosas,
-      reescritura,
-      desconocidas,
-      rutaDeGit,
-      cambiosPrevios: previos.map((s) => ({ segmento: recorte(s), cambia: queCambia(s, shell) })).filter((x) => x.cambia),
+    const g = globalesDeGit(p, k + 1, carpetas)
+    const sub = p[g.i] ?? null
+    const subLiteral = sub != null && !NO_LITERAL.test(sub)
+    const envoltorio = p.slice(0, k)
+    if (sub != null && !subLiteral) sospechas.push(`\`${recorte(segmento)}\`: el subcomando de git no es literal`)
+    else if (sub == null && envoltorio.length) sospechas.push(`\`${recorte(segmento)}\`: git sin subcomando dentro de un envoltorio`)
+    if (g.configs.some((c) => /^alias\./i.test(c))) sospechas.push(`\`${recorte(segmento)}\` define un alias de git con -c`)
+    invocaciones.push({
+      segmento,
+      dir: g.dir,
+      dirIrresoluble: g.dir == null ? g.motivo ?? 'carpeta desconocida' : null,
+      envoltorio,
+      sub,
+      subLiteral,
+      args: p.slice(g.i + 1),
+      configs: g.configs,
+      rutaDeGit: g.rutaDeGit,
       entorno: ASIGNACION.test(segmento),
       metacaracteres: METACARACTERES.test(segmento),
-      cabezas: [...new Set(cabezas)],
-      destinos: [...new Set(destinos)],
-      borrados: [...new Set(borrados)],
-      forzado,
-      masivo,
+      cambiosPrevios: previos.map((s) => ({ segmento: recorte(s), cambia: queCambia(s, shell) })).filter((x) => x.cambia),
     })
     previos.push(segmento)
   }
-  return pushes
+  return { invocaciones, sospechas }
+}
+
+// Lo que un `git push` subiria segun su texto. `cabezas`: revs cuyos commits
+// sin pushear hay que revisar. `destinos`: refs remotas a las que apunta cada
+// refspec ('HEAD' = la rama actual, se resuelve despues con git). `borrados`:
+// refs que el push borraria. `remoto`: el nombre o URL dado, o null.
+// `riesgosas`, `reescritura` y `desconocidas`: opciones que el hook no
+// resuelve, que reescriben historia o que no reconoce (abreviadas incluidas).
+// `args`: todo lo que sigue a `push`, para que git lo ensaye tal cual. Lo demas
+// viene de la invocacion: carpeta (`dir`/`dirIrresoluble`), `envoltorio`,
+// `alias`, `configs`, `rutaDeGit`, `entorno`, `metacaracteres`, `cambiosPrevios`.
+export function analizaPush(inv) {
+  const args = inv.args
+  const posicionales = []
+  const extra = []
+  const riesgosas = []
+  const reescritura = []
+  const desconocidas = []
+  let forzado = false
+  let masivo = false
+  let borrar = false
+  for (let j = 0; j < args.length; j++) {
+    const arg = args[j]
+    if (arg === '--') {
+      posicionales.push(...args.slice(j + 1))
+      break
+    }
+    if (arg === '--delete' || arg === '-d') {
+      borrar = true
+      continue
+    }
+    if (arg.startsWith('--')) {
+      const nombre = arg.split('=')[0]
+      if (!LARGAS_CONOCIDAS.has(nombre)) desconocidas.push(arg)
+      if (nombre === '--force') forzado = true
+      if (nombre === '--tags' || nombre === '--follow-tags') extra.push('--tags')
+      if (nombre === '--all' || nombre === '--branches') {
+        extra.push('--branches')
+        masivo = true
+      }
+      if (nombre === '--mirror') {
+        extra.push('--branches', '--tags')
+        masivo = true
+      }
+      if (OPCIONES_RIESGOSAS.test(arg)) riesgosas.push(arg)
+      if (OPCIONES_DE_REESCRITURA.test(arg)) reescritura.push(arg)
+      if (OPCIONES_PUSH_CON_VALOR.has(arg)) j++
+      continue
+    }
+    if (arg.startsWith('-') && arg.length > 1) {
+      // Grupo de flags cortos: -uf, -4f, -fu... cualquiera con "f" fuerza y
+      // cualquiera con "o" lleva una push-option que el hook no resuelve.
+      const letras = arg.slice(1).split('')
+      if (letras.includes('f')) forzado = true
+      if (letras.includes('o')) riesgosas.push(arg)
+      if (letras.includes('d')) borrar = true
+      if (letras.some((l) => !CORTAS_CONOCIDAS.has(l))) desconocidas.push(arg)
+      if (OPCIONES_PUSH_CON_VALOR.has(arg)) j++
+      continue
+    }
+    posicionales.push(arg)
+  }
+  const remoto = posicionales[0] ?? null
+  const refspecs = posicionales.slice(1)
+  const cabezas = []
+  const destinos = []
+  const borrados = []
+  for (const refspec of refspecs) {
+    const sinMas = refspec.replace(/^\+/, '')
+    if (sinMas === ':') {
+      // "matching": todas las ramas locales que ya existen en el remoto, main incluida.
+      masivo = true
+      extra.push('--branches')
+      continue
+    }
+    if (borrar) {
+      borrados.push(sinMas.split(':').pop())
+      continue
+    }
+    if (sinMas.startsWith(':')) {
+      borrados.push(sinMas.slice(1)) // borrar la rama remota
+      continue
+    }
+    if (refspec.startsWith('+')) forzado = true
+    const [origen, destinoExplicito] = sinMas.split(':')
+    const src = origen === '' || origen === '@' ? 'HEAD' : origen
+    cabezas.push(src)
+    destinos.push(destinoExplicito ?? src)
+  }
+  // Sin refspec, push de la rama actual; --tags solo, en cambio, no la sube.
+  if (!borrar && refspecs.length === 0 && !extra.includes('--branches') && !(extra.includes('--tags') && !args.includes('--follow-tags'))) {
+    cabezas.push('HEAD')
+    destinos.push('HEAD')
+  }
+  cabezas.push(...extra)
+  return {
+    segmento: inv.segmento,
+    dir: inv.dir ?? null,
+    dirIrresoluble: inv.dirIrresoluble ?? null,
+    envoltorio: inv.envoltorio ?? [],
+    alias: inv.alias ?? null,
+    args,
+    remoto,
+    configs: inv.configs ?? [],
+    riesgosas,
+    reescritura,
+    desconocidas,
+    rutaDeGit: Boolean(inv.rutaDeGit),
+    cambiosPrevios: inv.cambiosPrevios ?? [],
+    entorno: Boolean(inv.entorno),
+    metacaracteres: Boolean(inv.metacaracteres),
+    cabezas: [...new Set(cabezas)],
+    destinos: [...new Set(destinos)],
+    borrados: [...new Set(borrados)],
+    forzado,
+    masivo,
+  }
+}
+
+// Los `git push` escritos como tales en el comando, en orden (los alias se
+// resuelven en `procesar`, que puede preguntarle a git).
+export function pushesDelComando(comando, cwd, shell = 'bash') {
+  return invocacionesDeGit(comando, cwd, shell)
+    .invocaciones.filter((inv) => inv.sub === 'push')
+    .map(analizaPush)
 }
 
 // El primer `git push` del comando, o null si no hay ninguno.
@@ -392,22 +555,23 @@ const FLAGS_DE_METADATA = /^(--body|-b|--body-file|-F|--base|-B)(=|$)/
 // `gh pr create` o un `gh pr edit` que toca body o base (lo que valida
 // pr-metadata). `objetivo` es el numero/URL/rama que se le paso a edit.
 export function cambioDePR(comando, cwd, shell = 'bash') {
-  let carpeta = cwd
+  const carpetas = carpetasDesde(cwd)
   for (const segmento of segmentos(comando, shell)) {
     const p = palabras(segmento, shell)
-    if (ES_CD.test(p[0] ?? '')) {
-      carpeta = carpetaTrasCd(carpeta, p.slice(1).find((x) => !x.startsWith('-')))
+    if (!p.length) continue
+    if (ES_CD.test(p[0]) || ES_PUSHD.test(p[0]) || ES_POPD.test(p[0])) {
+      aplicaCd(carpetas, p, segmento)
       continue
     }
-    if (!ES_GH.test(p[0] ?? '') || p[1] !== 'pr') continue
+    if (!ES_GH.test(p[0]) || p[1] !== 'pr') continue
     const args = p.slice(3)
     if (p[2] === 'create') {
       if (args.some((a) => a === '--web' || a === '-w' || a === '--dry-run')) continue
-      return { accion: 'create', dir: carpeta, objetivo: null }
+      return { accion: 'create', dir: carpetas.actual, objetivo: null }
     }
     if (p[2] === 'edit' && args.some((a) => FLAGS_DE_METADATA.test(a))) {
       const objetivo = args[0] && !args[0].startsWith('-') ? args[0] : null
-      return { accion: 'edit', dir: carpeta, objetivo }
+      return { accion: 'edit', dir: carpetas.actual, objetivo }
     }
   }
   return null
@@ -438,6 +602,17 @@ function primeraLinea(r) {
   return (r.stderr || r.stdout || r.error?.message || `exit ${r.status}`).trim().split('\n')[0]
 }
 
+// El error real de un ensayo fallido: con --verbose git imprime antes
+// "Pushing to <url>", que no explica nada.
+function motivoDelEnsayo(r) {
+  if (r.error) return primeraLinea(r)
+  const lineas = `${r.stderr}\n${r.stdout}`
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^(Pushing to |Done$|To |Everything up-to-date)/.test(l))
+  return lineas.find((l) => /^(fatal|error):/.test(l)) ?? lineas[0] ?? `exit ${r.status}`
+}
+
 function raizDelRepo(dir, correr) {
   const r = correr('git', ['rev-parse', '--show-toplevel'], { cwd: dir, timeout: 10_000 })
   return r.status === 0 ? r.stdout.trim() : null
@@ -454,12 +629,18 @@ function rutaDelScript(raiz) {
 // destino solo se mira (existencia) para decidir si le corresponde el check.
 const SCRIPT_CONFIABLE = rutaDelScript(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'))
 
-// El repo donde corre el comando, si le corresponde el check: con el script
-// del harness. Cualquier otro repo queda fuera.
-function repoConReglas(dir, correr) {
-  const raiz = dir ? raizDelRepo(dir, correr) : null
-  if (!raiz || !fs.existsSync(rutaDelScript(raiz)) || !fs.existsSync(SCRIPT_CONFIABLE)) return null
-  return raiz
+// El repo donde corre el comando: { raiz } si le corresponde el check (tiene
+// el script del harness), { ajeno: true } si es un repo git de otro proyecto,
+// o { motivo } si el hook no puede saberlo (carpeta irresoluble, inexistente,
+// que no es un repo): eso nunca es "adelante".
+function repoConReglas({ dir, dirIrresoluble }, correr) {
+  if (dirIrresoluble) return { motivo: dirIrresoluble }
+  if (!dir || !fs.existsSync(dir)) return { motivo: `la carpeta ${dir ?? '(desconocida)'} no existe` }
+  const raiz = raizDelRepo(dir, correr)
+  if (!raiz) return { motivo: `${dir} no es un repositorio git` }
+  if (!fs.existsSync(rutaDelScript(raiz))) return { ajeno: true }
+  if (!fs.existsSync(SCRIPT_CONFIABLE)) return { motivo: 'no encuentro el script de checks del proyecto de este hook' }
+  return { raiz }
 }
 
 function denegar(lineas) {
@@ -483,6 +664,8 @@ function pedirConfirmacion(lineas) {
     },
   }
 }
+
+const FORMA_SIMPLE = 'Si es un push, escribelo solo y en su forma simple, en un comando aparte: `git push -u origin <rama>`.'
 
 // Nombre de rama remota al que apunta un destino de refspec, o null si no es
 // una rama (un tag, una ref arbitraria, HEAD detached). git resuelve
@@ -538,7 +721,7 @@ export function argsDelEnsayo(args) {
 // sin nada que subir deja igual constancia de a donde habria ido.
 export function destinosSegunGit({ dir, args, correr }) {
   const r = correr('git', ['push', '--dry-run', '--porcelain', '--no-verify', '--verbose', ...argsDelEnsayo(args)], { cwd: dir, timeout: 25_000 })
-  if (r.status !== 0) return { ok: false, motivo: primeraLinea(r) }
+  if (r.status !== 0) return { ok: false, motivo: motivoDelEnsayo(r) }
   const { url, destinos } = parsePorcelain(r.stdout)
   if (!url && !destinos.length) return { ok: false, motivo: 'git no informo ningun destino en el ensayo' }
   return { ok: true, url, destinos }
@@ -551,9 +734,17 @@ export function mismaUrl(a, b) {
   return n(a) !== '' && n(a) === n(b)
 }
 
+// Mismo repositorio aunque cambie el protocolo (https para fetch, ssh para
+// push): host/owner/repo iguales.
+export function mismoRepo(a, b) {
+  if (mismaUrl(a, b)) return true
+  const ra = repoDeUrl(a)
+  return ra != null && ra === repoDeUrl(b)
+}
+
 const PROTEGIDA = (nombre) => nombre && RAMAS_PROTEGIDAS.includes(nombre)
 
-export function prePush({ push, raiz, correr, presupuestoMs = PRESUPUESTO_MS }) {
+export function prePush({ push, raiz, sinRaiz = null, correr, presupuestoMs = PRESUPUESTO_MS }) {
   const inicio = Date.now()
   const restante = () => presupuestoMs - (Date.now() - inicio)
   // Toda llamada respeta el presupuesto: agotado, devuelve un fallo que termina
@@ -584,7 +775,7 @@ export function prePush({ push, raiz, correr, presupuestoMs = PRESUPUESTO_MS }) 
     ])
   }
 
-  const ramaActual = push.destinos.includes('HEAD') ? ramaActualDe(raiz, correrP) : null
+  const ramaActual = raiz && push.destinos.includes('HEAD') ? ramaActualDe(raiz, correrP) : null
   const protegidas = [
     ...new Set([...push.destinos.map((d) => ramaDeDestino(d, { ramaActual })), ...push.borrados.map((d) => ramaDeDestino(d))].filter(PROTEGIDA)),
   ]
@@ -596,15 +787,27 @@ export function prePush({ push, raiz, correr, presupuestoMs = PRESUPUESTO_MS }) 
     ])
   }
 
+  // Sin repo resuelto no hay rama actual, ni escaneo, ni ensayo: lo que no es
+  // un deny estatico se pregunta.
+  if (!raiz) {
+    return pedirConfirmacion([
+      `reglas-pr: no pude determinar en que repositorio corre este push (${sinRaiz ?? 'carpeta desconocida'}), asi que no lo verifique.`,
+      'Confirma solo si sabes que no va a main ni a otro remoto y que no sube credenciales ni datos de la organizacion.',
+      'Si es este repo, pushea desde su carpeta con una ruta literal: `cd <ruta del repo> && git push -u origin <rama>`, o mejor en dos comandos.',
+    ])
+  }
+
   // Secretos y datos sensibles en lo que subiria. Con metacaracteres el refspec
   // no es confiable: el escaneo queda para despues de la confirmacion del usuario.
+  let autorizacionesNuevas = false
   if (push.cabezas.length && !push.metacaracteres) {
     for (const cabeza of push.cabezas) {
       const args = [SCRIPT_CONFIABLE, '--grupo', 'secretos', '--sin-pushear']
       // Con "=": una ref que empiece con "-" no puede leerse como otra opcion.
       if (cabeza !== 'HEAD') args.push(`--cabeza=${cabeza}`)
       const r = correrP(process.execPath, args, { cwd: raiz, timeout: 45_000 })
-      const fails = (r.stdout ?? '').split('\n').filter((l) => l.startsWith('[FAIL]'))
+      const lineas = (r.stdout ?? '').split('\n')
+      const fails = lineas.filter((l) => l.startsWith('[FAIL]'))
       if (r.status === 1 && fails.length) {
         return denegar([
           'reglas-pr: el push subiria credenciales o datos sensibles de la organizacion.',
@@ -624,6 +827,7 @@ export function prePush({ push, raiz, correr, presupuestoMs = PRESUPUESTO_MS }) 
           'Confirma solo si sabes que estos commits no llevan credenciales ni datos de la organizacion; si no, para y avisa al usuario.',
         ])
       }
+      if (lineas.some((l) => l.startsWith('[skip] excepciones-nuevas:') && l.includes('.datos-autorizados'))) autorizacionesNuevas = true
     }
   }
 
@@ -632,12 +836,14 @@ export function prePush({ push, raiz, correr, presupuestoMs = PRESUPUESTO_MS }) 
   // pregunta que un push a ciegas.
   const dudas = []
   if (push.metacaracteres) dudas.push('tiene caracteres que expande el shell ($, `, {}, comodines) y el hook no puede saber a que ref apuntan')
+  if (push.envoltorio.length) dudas.push(`git va envuelto en \`${push.envoltorio.join(' ')}\`, y el hook no puede saber que ejecuta de verdad`)
+  if (push.alias) dudas.push(`usa un alias de git (${push.alias}) en vez de \`git push\``)
   if (push.configs.length) dudas.push(`lleva \`-c ${push.configs.join(' ')}\`, que puede cambiar el remoto o el destino`)
   if (push.entorno) dudas.push('lleva variables de entorno delante del comando, que pueden cambiar la configuracion de git')
   if (push.rutaDeGit) dudas.push('usa --git-dir, --work-tree o --namespace, y el hook solo ensaya el repo del directorio actual')
   const previosDestino = push.cambiosPrevios.filter((c) => c.cambia === 'destino').map((c) => `\`${c.segmento}\``)
   const previosContenido = push.cambiosPrevios.filter((c) => c.cambia === 'contenido').map((c) => `\`${c.segmento}\``)
-  if (previosDestino.length) dudas.push(`antes del push corre algo que cambia la rama, el remoto, la configuracion o el entorno (${previosDestino.join('; ')}) y el hook solo puede ensayar el estado actual`)
+  if (previosDestino.length) dudas.push(`antes del push corre algo que cambia la rama, el remoto, la configuracion, el entorno o define funciones o alias (${previosDestino.join('; ')}) y el hook solo puede ensayar el estado actual`)
   if (previosContenido.length) dudas.push(`antes del push corre algo que cambia los commits (${previosContenido.join('; ')}) y el escaneo de secretos solo vio los que ya existen`)
   if (push.riesgosas.length) dudas.push(`lleva ${push.riesgosas.map((o) => `\`${o}\``).join(', ')}, que el hook no resuelve`)
   if (push.reescritura.length) dudas.push(`lleva ${push.reescritura.map((o) => `\`${o}\``).join(', ')}, que reescribe la historia remota: solo sobre TU rama y con el usuario de acuerdo`)
@@ -658,21 +864,33 @@ export function prePush({ push, raiz, correr, presupuestoMs = PRESUPUESTO_MS }) 
       'Confirma solo si sabes que no va a main; si el error es del comando (sin upstream, sin red, remoto inexistente), el push real va a fallar igual.',
     ])
   }
-  const reales = [...new Set(real.destinos.map((d) => ramaDeDestino(d)).filter(PROTEGIDA))]
+  const destinosReales = real.destinos.map((d) => ramaDeDestino(d))
+  const reales = [...new Set(destinosReales.filter(PROTEGIDA))]
   if (reales.length) {
     return denegar([
       `reglas-pr: segun git, este push actualizaria ${reales.map((n) => `\`${n}\``).join(' y ')} (por la configuracion de push o el upstream de la rama), y esa rama solo recibe merges por Pull Request.`,
       'Pushea tu rama con nombre explicito: `git push -u origin <tu-rama>`. No intentes rodear este hook.',
     ])
   }
-  if (!push.remoto) {
-    const origen = correrP('git', ['remote', 'get-url', '--push', REMOTO_PERMITIDO], { cwd: raiz, timeout: 10_000 })
-    if (origen.status !== 0 || !mismaUrl(origen.stdout, real.url)) {
-      return denegar([
-        `reglas-pr: sin remoto explicito, git mandaria este push a ${real.url ?? 'un remoto que no pude determinar'}, no a \`${REMOTO_PERMITIDO}\`.`,
-        `Pushea indicando el remoto: \`git push -u ${REMOTO_PERMITIDO} <tu-rama>\`.`,
-      ])
-    }
+  // A donde iria de verdad: la URL del ensayo tiene que ser la del repo de
+  // origin (la de fetch; un pushurl o un url.*.pushInsteadOf la cambiarian).
+  const origen = correrP('git', ['remote', 'get-url', REMOTO_PERMITIDO], { cwd: raiz, timeout: 10_000 })
+  if (origen.status !== 0 || !mismoRepo(origen.stdout, real.url)) {
+    return denegar([
+      `reglas-pr: segun git, este push iria a ${real.url ?? 'un remoto que no pude determinar'}, que no es el repositorio de \`${REMOTO_PERMITIDO}\`${origen.status === 0 ? ` (${origen.stdout.trim()})` : ''}: hay un pushurl o un pushInsteadOf configurado, o el remoto no existe.`,
+      `Desde la sesion solo se pushea a \`${REMOTO_PERMITIDO}\`. Si la configuracion es legitima, que la revise el usuario (\`git remote -v\`, \`git config --get-regexp 'pushurl|pushinsteadof'\`).`,
+    ])
+  }
+  // Una autorizacion nueva en .datos-autorizados entra a dev por PR (la
+  // registra el usuario, la ve el revisor), nunca por push directo: si no, un
+  // push a dev con la excepcion y otro con los datos burlan el control.
+  const aIntegracion = [...destinosReales, ...push.destinos.map((d) => ramaDeDestino(d, { ramaActual }))].includes(RAMA_INTEGRACION)
+  if (autorizacionesNuevas && aIntegracion) {
+    return denegar([
+      `reglas-pr: este push lleva lineas nuevas en .datos-autorizados directo a \`${RAMA_INTEGRACION}\`.`,
+      'Una autorizacion de datos de la organizacion la registra el usuario y entra por Pull Request, donde el revisor la ve (regla excepciones-nuevas);',
+      'por push directo no. Pushea la rama de trabajo y abre el PR, o que el usuario lo haga a mano. No intentes rodear este hook.',
+    ])
   }
   return null
 }
@@ -822,6 +1040,68 @@ export function salidaPostToolUse({ estado, texto, url }) {
   }
 }
 
+// --- Subcomandos nativos y alias de git ------------------------------------
+
+// Si git no dice cuales son sus subcomandos nativos (git viejo, sin git), vale
+// esta lista: lo importante es que un alias nunca pueda sombrear un nativo
+// (git no lo permite), asi que solo los no nativos pueden ser alias.
+const NATIVOS_DE_RESPALDO = [
+  'add', 'am', 'apply', 'archive', 'bisect', 'blame', 'branch', 'bundle', 'cat-file', 'check-ignore', 'checkout',
+  'cherry-pick', 'clean', 'clone', 'commit', 'config', 'describe', 'diff', 'difftool', 'fetch', 'for-each-ref',
+  'format-patch', 'fsck', 'gc', 'grep', 'help', 'init', 'log', 'ls-files', 'ls-remote', 'ls-tree', 'merge',
+  'merge-base', 'mergetool', 'mv', 'notes', 'pull', 'push', 'range-diff', 'rebase', 'reflog', 'remote', 'repack',
+  'reset', 'restore', 'rev-list', 'rev-parse', 'revert', 'rm', 'shortlog', 'show', 'show-ref', 'sparse-checkout',
+  'stash', 'status', 'submodule', 'switch', 'symbolic-ref', 'tag', 'update-index', 'update-ref', 'version', 'worktree',
+]
+let nativos = null
+
+function esNativo(sub, correr) {
+  if (!nativos) {
+    const r = correr('git', ['--list-cmds=builtins'], { timeout: 10_000 })
+    const lista = r.status === 0 ? r.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : []
+    nativos = new Set(lista.length ? [...lista, 'help', 'version'] : NATIVOS_DE_RESPALDO)
+  }
+  return nativos.has(sub)
+}
+
+// El valor de un alias de git, o null si no existe.
+function aliasDe(sub, dir, correr) {
+  if (!/^[\w.-]+$/.test(sub)) return null
+  const r = correr('git', ['config', '--get', `alias.${sub}`], { cwd: dir ?? undefined, timeout: 10_000 })
+  const valor = r.status === 0 ? r.stdout.trim() : ''
+  return valor || null
+}
+
+// Los push del comando, incluidos los que llegan por alias (`git p origin`,
+// con `alias.p = push`), y los motivos para preguntar que no son un push
+// analizable: alias que pueden pushear, subcomandos no literales, `git push`
+// dentro de cadenas o scripts, git nativo con configuracion por entorno.
+function pushesYSospechas(comando, cwd, shell, correr) {
+  const { invocaciones, sospechas } = invocacionesDeGit(comando, cwd, shell)
+  const pushes = []
+  const motivos = [...sospechas]
+  for (const inv of invocaciones) {
+    if (inv.sub === 'push') {
+      pushes.push(analizaPush(inv))
+      continue
+    }
+    if (inv.sub == null || !inv.subLiteral || esNativo(inv.sub, correr)) continue
+    if (inv.entorno) {
+      motivos.push(`\`${recorte(inv.segmento)}\`: variables de entorno delante de un subcomando de git que no es nativo (\`${inv.sub}\`)`)
+      continue
+    }
+    const alias = inv.dirIrresoluble ? null : aliasDe(inv.sub, inv.dir, correr)
+    if (alias == null) continue
+    const partes = palabras(alias)
+    if (partes[0] === 'push') {
+      pushes.push(analizaPush({ ...inv, args: [...partes.slice(1), ...inv.args], alias: `\`${inv.sub}\` = \`${recorte(alias)}\`` }))
+    } else if (/push/i.test(alias)) {
+      motivos.push(`\`git ${inv.sub}\` es un alias de git (\`${recorte(alias)}\`) que puede hacer push`)
+    }
+  }
+  return { pushes, motivos }
+}
+
 // Punto de entrada del hook: decide que hacer con la entrada de Claude Code.
 export function procesar(entrada, correr = correrReal) {
   const comando = entrada?.tool_input?.command
@@ -830,23 +1110,31 @@ export function procesar(entrada, correr = correrReal) {
   const shell = /powershell/i.test(entrada.tool_name ?? '') ? 'powershell' : 'bash'
 
   if (entrada.hook_event_name === 'PreToolUse') {
+    const { pushes, motivos } = pushesYSospechas(comando, cwd, shell, correr)
     // Todos los push del comando comparten el presupuesto: un deny gana a un
     // ask, y un ask a dejar pasar.
     const fin = Date.now() + PRESUPUESTO_MS
     let confirmacion = null
-    for (const push of pushesDelComando(comando, cwd, shell)) {
-      const raiz = repoConReglas(push.dir, correr)
-      if (!raiz) continue
-      const salida = prePush({ push, raiz, correr, presupuestoMs: fin - Date.now() })
+    for (const push of pushes) {
+      const repo = repoConReglas(push, correr)
+      if (repo.ajeno) continue
+      const salida = prePush({ push, raiz: repo.raiz ?? null, sinRaiz: repo.motivo ?? null, correr, presupuestoMs: fin - Date.now() })
       if (!salida) continue
       if (salida.hookSpecificOutput.permissionDecision === 'deny') return salida
       confirmacion ??= salida
+    }
+    if (!confirmacion && motivos.length) {
+      confirmacion = pedirConfirmacion([
+        `reglas-pr: no puedo analizar este comando con certeza: ${motivos.join('; ')}.`,
+        `${FORMA_SIMPLE} Confirma solo si sabes que no va a main ni a otro remoto y que no sube credenciales ni datos de la organizacion.`,
+      ])
     }
     return confirmacion
   }
   if (entrada.hook_event_name === 'PostToolUse') {
     const cambio = cambioDePR(comando, cwd, shell)
-    const raiz = cambio && repoConReglas(cambio.dir, correr)
+    const repo = cambio && repoConReglas({ dir: cambio.dir, dirIrresoluble: cambio.dir ? null : 'carpeta desconocida' }, correr)
+    const raiz = repo?.raiz
     if (!raiz) return null
     // De las URLs de la salida, la primera que sea de este repo; una URL ajena
     // (aunque venga ultima) no decide nada.
@@ -874,17 +1162,17 @@ function main() {
   const indicePr = process.argv.indexOf('--pr')
   if (indicePr !== -1) {
     // Modo manual: node .claude/hooks/reglas-pr.mjs --pr <url>
-    const raiz = repoConReglas(process.cwd(), correrReal)
-    if (!raiz) {
+    const repo = repoConReglas({ dir: process.cwd() }, correrReal)
+    if (!repo.raiz) {
       console.log('reglas-pr: este repo no tiene scripts/check-pr-rules.mjs del harness.')
       process.exit(2)
     }
     const objetivo = process.argv[indicePr + 1] ?? null
-    if (!prDeEsteRepo(objetivo, repoDelOrigen(raiz, correrReal))) {
+    if (!prDeEsteRepo(objetivo, repoDelOrigen(repo.raiz, correrReal))) {
       console.log(`reglas-pr: ${objetivo} no es un PR de este repo (origin); no se corre ni se comenta.`)
       process.exit(2)
     }
-    const { estado, texto } = postPR({ objetivo, raiz, correr: correrReal })
+    const { estado, texto } = postPR({ objetivo, raiz: repo.raiz, correr: correrReal })
     console.log(texto)
     process.exit(estado === 'ok' ? 0 : estado === 'fail' ? 1 : 2)
   }

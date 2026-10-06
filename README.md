@@ -196,25 +196,39 @@ el agente con `node scripts/tag-release.mjs --ref origin/main`.
 Antes del primer release el harness pasó por su propia skill `security-audit`
 (informe en `docs/security/`). Lo que conviene saber al adoptarlo:
 
-- **El hook trabaja sobre el comando y sobre el ensayo de git.** Además de parsear
-  el texto (todos los `git push` del comando, no solo el primero), le pide a git
-  que ensaye el push (`--dry-run`, sin `-q`) y deniega si el destino real es
-  `main`, aunque el texto no lo diga (upstream, `push.default`, `heads/main`). Lo
-  que no puede resolver pide confirmación en vez de dejarlo pasar: expansiones del
-  shell, `git -c`, variables de entorno delante del push, opciones desconocidas o
-  abreviadas, `--no-verify`, `--force-with-lease`, un `git commit`, `git checkout`
-  o `export` antes del push en el mismo comando, un ensayo que falla o que no
-  informa destino, y también quedarse sin tiempo (responde antes del timeout del
-  hook, porque un hook cancelado por timeout no bloquea nada). Por eso la regla
-  de uso es **el push va solo, en su propio comando**. Lo que no ve: alias de git
-  definidos en `.gitconfig` y pushes hechos fuera de Claude Code; para eso está la
+- **El hook trabaja sobre el comando y sobre el ensayo de git.** Reconoce la forma
+  canónica `git push [-u] origin <rama>` (también con `cd <ruta literal> &&`
+  delante, con `git -C <ruta>` y a través de un alias de git que sea `push`),
+  escanea los commits que subirían, le pide a git que ensaye el push (`--dry-run`,
+  sin `-q`) y deniega si el destino real es `main` (upstream, `push.default`,
+  `heads/main`) o si la URL a la que iría no es la del repo de `origin` (`pushurl`,
+  `pushInsteadOf`). **Todo lo que no puede analizar con certeza pide confirmación
+  en vez de dejarlo pasar**: expansiones del shell, `git -c`, variables de entorno,
+  opciones desconocidas o abreviadas, `--no-verify`, `--force-with-lease`; un
+  `git commit`, `git checkout`, `source`, `export`, una función o un alias
+  definidos antes del push en el mismo comando; una carpeta que no puede resolver
+  (`cd "$PWD"`, `cd -` sin carpeta anterior, rutas que no existen); un `git`
+  envuelto en otro programa (`env`, `sh -c`, `timeout`, `cmd /c`); un subcomando
+  que no es literal (`git $s`); un alias de git que puede hacer push; `git push`
+  dentro de una cadena o un script; un ensayo que falla o no informa destino; y
+  quedarse sin tiempo (responde antes del timeout del hook, porque un hook
+  cancelado por timeout no bloquea nada). Por eso la regla de uso es **el push va
+  solo, en su propio comando**. Lo que no ve: scripts y programas que pushean sin
+  que `git push` aparezca en el comando (`npm run deploy`, `node -e`, herramientas
+  MCP de git), funciones o alias de shell definidos en los archivos de arranque
+  (`~/.bashrc`, perfil de PowerShell: el harness deniega editarlos con las tools de
+  edición, no con `cat >>`) y pushes hechos fuera de Claude Code; para eso está la
   protección de `main` en GitHub, donde el plan la ofrece.
-- **Solo se pushea a `origin`.** Otro remoto o una URL se deniegan en la sesión.
+- **Solo se pushea a `origin`.** Otro remoto o una URL se deniegan en la sesión, y
+  también un `origin` cuya URL de push apunte a otro repositorio.
 - **Las excepciones son del usuario.** `.datos-autorizados` vale cuando ya está en
-  `dev` (el check lo lee de `origin/dev`), y los marcadores `coe:no-secreto` nuevos
-  se listan en el resultado para el revisor. El agente no puede editar los
-  guardarraíles con sus tools de edición (`.claude/hooks/`, `settings.json`,
-  `scripts/check-pr-rules.mjs`, `.datos-autorizados`, workflows).
+  `dev` (el check lo lee de `refs/remotes/origin/dev`) y llega a `dev` por PR: el
+  hook deniega el push directo a `dev` de commits que agreguen autorizaciones. Los
+  marcadores `coe:no-secreto` nuevos se listan en el resultado para el revisor. El
+  agente no puede editar los guardarraíles con sus tools de edición
+  (`.claude/hooks/`, `settings.json`, `scripts/check-pr-rules.mjs`,
+  `.datos-autorizados`, workflows, `.git/`, `~/.gitconfig`, archivos de arranque
+  del shell).
 - **Con 0 aprobaciones obligatorias, el autor de un PR controla el check**
   (`reglas-pr` corre el script del propio PR). Es la contrapartida de no trabar
   equipos de dos personas. Equipos con dos o más revisores deben subir a 1

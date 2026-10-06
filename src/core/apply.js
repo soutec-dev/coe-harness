@@ -11,17 +11,25 @@ export function backupDirName(now = new Date()) {
   return `backup-${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}T${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`
 }
 
-// Ninguna ruta del plan puede salir del repo: ni para escribir, ni para
-// borrar, ni para respaldar, ni para crear directorios. computePlan ya descarta
-// los dest con "..", pero esto es la ultima linea, independiente de quien armo
-// el plan. Se compara tambien la ruta real del directorio padre (realpath):
-// un symlink commiteado dentro del repo no puede desviar nada hacia fuera.
+// Ninguna ruta del plan puede salir del repo ni tocar .git: ni para escribir,
+// ni para borrar, ni para respaldar, ni para crear directorios. computePlan ya
+// descarta los dest con ".." y ".git", pero esto es la ultima linea,
+// independiente de quien armo el plan, y se decide sobre la ruta REAL
+// (realpath): un symlink commiteado no desvia nada hacia fuera, un nombre
+// corto 8.3 de Windows (GIT~1) no disfraza a .git, y la ultima componente no
+// puede ser un symlink.
 function dentroDelRepo(cwd, abs) {
   const raiz = rutaReal(path.resolve(cwd))
-  const padreReal = rutaReal(path.dirname(path.resolve(abs)))
-  const objetivo = path.join(padreReal, path.basename(abs))
+  const objetivo = rutaReal(path.resolve(abs))
   const rel = path.relative(raiz, objetivo)
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return false
+  if (rel.split(/[\\/]/).some((p) => p.toLowerCase() === '.git')) return false
+  try {
+    if (fs.lstatSync(path.resolve(abs)).isSymbolicLink()) return false
+  } catch {
+    // no existe todavia: nada que comprobar
+  }
+  return true
 }
 
 // realpath del tramo que exista (los directorios nuevos todavia no se pueden

@@ -128,4 +128,37 @@ Segundo ciclo (hallazgos de la revisión final, N-01 a N-12):
   `--raw-field`, `--input`).
 - **N-12** Documentado el alcance de las cuentas admin (README).
 
+Tercer ciclo (hallazgos de la revisión final del ciclo 2, R-01 a R-09):
+
+- **R-01 (High)** El hook ya no se calla ante lo que no modela. Carpetas: `cd -`,
+  `pushd`/`popd`, `cd` a secas, rutas POSIX de Git Bash en Windows (`/c/…`), y
+  cuando la carpeta no se puede resolver (`cd "$PWD"`, `git -C "$PWD"`, rutas que
+  no existen) lo estático se deniega y el resto pide confirmación. Entorno:
+  `source`, `.`, `eval`, `exec`, definiciones de funciones y alias (`git() {…}`,
+  `function git`, `Set-Alias`), variables de PowerShell y `-c alias.*` cuentan
+  como cambio de estado previo (`ask`). Indirecciones: un `git` envuelto en otro
+  programa (`env`, `command`, `timeout`, `sudo`, `cmd /c`…) se analiza como push
+  y pide confirmación; un subcomando no literal (`git $s`), `git push` dentro de
+  una cadena o un script (`sh -c '…'`, `eval`, `Invoke-Expression`, una
+  asignación) o un comando que es una variable piden confirmación; un alias de
+  git que es `push` se analiza como push (y pide confirmación), uno que puede
+  pushear también.
+- **R-02** `seedMerge` identifica las entradas de hooks por matcher + comando: la
+  del harness se reemplaza en el upgrade en vez de duplicarse (la copia dogfood
+  tenía cuatro entradas por evento); test de dogfood que exige los hooks y
+  permisos exactos de la plantilla.
+- **R-03** La URL a la que git mandaría el push se compara siempre con la de
+  fetch de `origin` (mismo repo aunque cambie el protocolo): un `pushurl` o un
+  `pushInsteadOf` hacia otro repo se deniega.
+- **R-04** Un push directo a `dev` con líneas nuevas en `.datos-autorizados` se
+  deniega: una autorización entra por PR.
+- **R-05** `apply` decide sobre la ruta real completa: `.git` por su nombre corto
+  8.3 (`GIT~1`) o por symlink queda bloqueado; la última componente no puede ser
+  un symlink.
+- **R-06** El motivo de un ensayo fallido ya no es "Pushing to …" sino el error
+  real de git.
+- **R-08** `settings.json` deniega editar `.git/`, `~/.gitconfig`, `~/.config/git`
+  y los archivos de arranque del shell; el README enumera lo que el hook no ve.
+- **R-09** `set -e`/`set -euo pipefail` ya no cuentan como cambio de entorno.
+
 [1.0.0]: https://github.com/soutec-dev/coe-harness/releases/tag/v1.0.0

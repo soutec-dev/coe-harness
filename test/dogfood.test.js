@@ -61,3 +61,15 @@ test('dogfood: las copias managed de este repo son identicas a sus templates', (
     assert.equal(hashContent(local), hashContent(readTemplate(entry.src)), `${entry.dest} difiere de templates/${entry.src}`)
   }
 })
+
+// settings.json es merge-json (no se compara por hash): los hooks y las listas
+// de permisos del repo tienen que ser exactamente los de la plantilla, sin
+// entradas viejas duplicadas ni reglas que la plantilla ya no trae.
+test('dogfood: el settings.json de este repo tiene exactamente los hooks y los permisos de la plantilla', () => {
+  const local = JSON.parse(readFileSync(new URL('../.claude/settings.json', import.meta.url), 'utf8'))
+  const plantilla = JSON.parse(readTemplate('base/claude/settings.json'))
+  assert.deepEqual(local.hooks, plantilla.hooks)
+  for (const lista of ['deny', 'allow', 'ask']) {
+    assert.deepEqual([...local.permissions[lista]].sort(), [...plantilla.permissions[lista]].sort(), `permissions.${lista}`)
+  }
+})

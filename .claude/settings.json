@@ -63,7 +63,18 @@
       "PowerShell(gh pr review:*)",
       "PowerShell(gh release:*)",
       "PowerShell(gh repo create:*)",
-      "PowerShell(gh repo delete:*)"
+      "PowerShell(gh repo delete:*)",
+      "Edit(./.git/**)",
+      "Edit(~/.gitconfig)",
+      "Edit(~/.config/git/**)",
+      "Edit(~/.bashrc)",
+      "Edit(~/.bash_profile)",
+      "Edit(~/.profile)",
+      "Edit(~/.zshrc)",
+      "Edit(~/.zprofile)",
+      "Edit(~/.zshenv)",
+      "Edit(~/Documents/PowerShell/**)",
+      "Edit(~/Documents/WindowsPowerShell/**)"
     ],
     "allow": [
       "Bash(git push:*)",
@@ -116,26 +127,6 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 90
-          }
-        ]
-      },
-      {
-        "matcher": "PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 90
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
             "timeout": 120
           }
         ]
@@ -152,26 +143,6 @@
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 240
-          }
-        ]
-      },
-      {
-        "matcher": "PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 240
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [

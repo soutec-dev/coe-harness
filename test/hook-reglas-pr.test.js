@@ -11,6 +11,7 @@ import {
   palabras,
   pushDelComando,
   pushesDelComando,
+  invocacionesDeGit,
   queCambia,
   argsDelEnsayo,
   ramaDeDestino,
@@ -148,6 +149,99 @@ test('pushesDelComando: opciones abreviadas o desconocidas, entorno, comandos pr
   assert.deepEqual(dos[1].cambiosPrevios, [], 'un push previo no cambia el estado')
 })
 
+// La carpeta del push se sigue a lo largo del comando: cd -, pushd/popd, cd a
+// secas (home), rutas POSIX de Git Bash en Windows. Lo que no se puede
+// resolver (variables, sustituciones, un popd sin pushd) queda marcado, nunca
+// se da por resuelto.
+test('invocacionesDeGit: cd -, pushd/popd, cd sin argumento, rutas irresolubles y rutas POSIX en Windows', () => {
+  assert.equal(pushDelComando('cd .. && cd - && git push origin', CWD).dir, CWD)
+  assert.equal(pushDelComando('pushd .. && popd && git push origin', CWD).dir, CWD)
+  assert.equal(pushDelComando('pushd sub && git push origin', CWD).dir, path.resolve(CWD, 'sub'))
+  assert.equal(pushDelComando('cd && git push origin', CWD).dir, os.homedir())
+  assert.equal(pushDelComando('cd ~ && git push origin', CWD).dir, os.homedir())
+  assert.equal(pushDelComando('Set-Location ..; Set-Location -; git push origin', CWD, 'powershell').dir, CWD)
+  assert.equal(pushDelComando('cd .. && git push origin', CWD).dir, path.resolve(CWD, '..'))
+  assert.equal(pushDelComando('cd .. 2>/dev/null && git push origin', CWD).dir, path.resolve(CWD, '..'))
+  for (const comando of [
+    'cd "$PWD" && git push origin',
+    'cd $OLDPWD && git push origin',
+    'cd "$(cygpath -w .)" && git push origin',
+    'git -C "$PWD" push origin',
+    'cd - && git push origin',
+    'popd && git push origin',
+    'cd ~otro && git push origin',
+    'cd "$X" && cd sub && git push origin',
+  ]) {
+    const push = pushDelComando(comando, CWD)
+    assert.equal(push.dir, null, comando)
+    assert.ok(push.dirIrresoluble, comando)
+  }
+  // Una ruta absoluta despues de una irresoluble vuelve a resolver.
+  assert.equal(pushDelComando(`cd "$X" && cd "${CWD}" && git push origin`, CWD).dir, CWD)
+  if (process.platform === 'win32') {
+    assert.equal(pushDelComando('cd /c/Users/x/repo && git push origin', CWD).dir, 'C:\\Users\\x\\repo')
+    assert.equal(pushDelComando('cd /cygdrive/d/repo && git push origin', CWD).dir, 'D:\\repo')
+    assert.ok(pushDelComando('cd /tmp/x && git push origin', CWD).dirIrresoluble)
+  }
+})
+
+// Un git envuelto en otro programa, un subcomando que no es literal, un `git
+// push` dentro de una cadena o un comando que es una variable: el hook no
+// puede analizarlos y los marca para preguntar.
+test('invocacionesDeGit: git envuelto, subcomando no literal, git push dentro de cadenas y comandos no literales', () => {
+  assert.deepEqual(pushDelComando('env git push origin HEAD:main', CWD).envoltorio, ['env'])
+  assert.deepEqual(pushDelComando('timeout 60 git push origin fix/x', CWD).envoltorio, ['timeout', '60'])
+  assert.deepEqual(pushDelComando('cmd /c git push origin', CWD).envoltorio, ['cmd', '/c'])
+  assert.deepEqual(pushDelComando('sudo -u deploy git push origin fix/x', CWD).envoltorio, ['sudo', '-u', 'deploy'])
+  assert.deepEqual(pushDelComando('git push origin fix/x', CWD).envoltorio, [])
+  assert.equal(pushDelComando('grep -rn git docs/', CWD), null)
+  assert.equal(pushDelComando('echo hola git status', CWD), null)
+
+  const variable = invocacionesDeGit('s=push; git $s origin', CWD)
+  assert.equal(variable.invocaciones.length, 1)
+  assert.equal(variable.invocaciones[0].subLiteral, false)
+  assert.match(variable.sospechas[0], /no es literal/)
+  assert.match(invocacionesDeGit('$a="push"; git $a origin', CWD, 'powershell').sospechas[0], /no es literal/)
+  assert.match(invocacionesDeGit("sh -c 'git push origin fix/x'", CWD).sospechas[0], /dentro de una cadena/)
+  assert.match(invocacionesDeGit('cmd="git push origin main"; eval "$cmd"', CWD).sospechas[0], /dentro de una cadena/)
+  assert.match(invocacionesDeGit('Invoke-Expression "git push origin"', CWD, 'powershell').sospechas[0], /dentro de una cadena/)
+  assert.match(invocacionesDeGit('node -e "require(\'child_process\').execSync(\'git push origin\')"', CWD).sospechas[0], /dentro de una cadena/)
+  assert.match(invocacionesDeGit('xargs git < lista.txt', CWD).sospechas[0], /sin subcomando/)
+  assert.match(invocacionesDeGit('$GIT push origin main', CWD).sospechas[0], /no es literal|dentro de una cadena/)
+  assert.match(invocacionesDeGit('git -c alias.p=push p origin', CWD).sospechas[0], /alias/)
+  assert.deepEqual(invocacionesDeGit('git commit -m "feat: push notifications" && git push origin fix/x', CWD).sospechas, [])
+  assert.deepEqual(invocacionesDeGit('git log --grep=push && npm test && git status', CWD).sospechas, [])
+})
+
+test('queCambia: source, eval, funciones, alias, variables de PowerShell y set con solo opciones', () => {
+  for (const s of [
+    'source env.sh',
+    '. env.sh',
+    'eval "$(cat env.sh)"',
+    'export GIT_DIR=/x',
+    'alias git="git -c x=y"',
+    'git() { command git -c x=y "$@"',
+    'function git { & git.exe -c x=y $args',
+    '$a="push"',
+    '$env:GIT_CONFIG_COUNT=1',
+    'Set-Alias git C:\\otro\\git.exe',
+    'git -c alias.p=push p',
+    'git $sub',
+    'command git checkout main',
+    "sh -c 'git push origin main'",
+    'cmd="git push origin main"',
+    'git remote set-url --push origin ../evil.git',
+  ]) {
+    assert.equal(queCambia(s), 'destino', s)
+  }
+  assert.equal(queCambia('. .\\env.ps1', 'powershell'), 'destino')
+  for (const s of ['set -e', 'set -euo pipefail', 'npm test', 'git log --oneline', 'env git status', 'grep -rn git docs/', 'echo listo', 'git push origin fix/x']) {
+    assert.equal(queCambia(s), null, s)
+  }
+  assert.equal(queCambia('set X=1'), 'destino')
+  assert.equal(queCambia('git tag v1'), 'contenido')
+})
+
 test('argsDelEnsayo: -q/--quiet se quitan para que el porcelain tenga contenido', () => {
   assert.deepEqual(argsDelEnsayo(['-q', 'origin', 'fix/x']), ['origin', 'fix/x'])
   assert.deepEqual(argsDelEnsayo(['--quiet', '-uq', 'origin']), ['-u', 'origin'])
@@ -176,9 +270,11 @@ test('pushDelComando: los borrados se reconocen (sin cabezas que escanear) y los
   assert.deepEqual(pushDelComando('git push origin :fix/x', CWD).borrados, ['fix/x'])
   assert.deepEqual(pushDelComando('git push origin :main', CWD).borrados, ['main'])
   assert.deepEqual(pushDelComando('git push origin -d main', CWD).borrados, ['main'])
-  for (const comando of ['git commit -m "despues hago git push"', 'git status', 'echo git push']) {
+  for (const comando of ['git commit -m "despues hago git push"', 'git status', 'echo "git push"']) {
     assert.equal(pushDelComando(comando, CWD), null, comando)
   }
+  // `git push` como dos palabras seguidas detras de otro programa se analiza como push (envuelto: pide confirmacion).
+  assert.deepEqual(pushDelComando('echo git push', CWD).envoltorio, ['echo'])
 })
 
 test('parsePorcelain y mismaUrl: lo que git resuelve, incluidos los borrados', () => {
@@ -242,7 +338,7 @@ function repoFalso() {
 const URL_ORIGEN = 'https://github.com/o/r.git'
 const ensayo = (lineas, url = URL_ORIGEN) => ({ status: 0, stdout: `To ${url}\n${lineas.join('\n')}\nDone\n`, stderr: '' })
 
-function correrFalso({ raiz, ramaActual = 'fix/algo', grupos = {}, vista = { status: 0 }, comentario = { status: 0 }, dryRun }) {
+function correrFalso({ raiz, ramaActual = 'fix/algo', grupos = {}, vista = { status: 0 }, comentario = { status: 0 }, dryRun, alias = {} }) {
   const llamadas = []
   const porcelain = dryRun ?? ensayo(['*\trefs/heads/fix/algo:refs/heads/fix/algo\t[new branch]'])
   const correr = (cmd, args, opciones = {}) => {
@@ -251,6 +347,11 @@ function correrFalso({ raiz, ramaActual = 'fix/algo', grupos = {}, vista = { sta
     if (cmd === 'git' && args[0] === 'symbolic-ref') return ramaActual ? { status: 0, stdout: `${ramaActual}\n`, stderr: '' } : { status: 1, stdout: '', stderr: '' }
     if (cmd === 'git' && args[0] === 'push') return porcelain
     if (cmd === 'git' && args[0] === 'remote') return { status: 0, stdout: `${URL_ORIGEN}\n`, stderr: '' }
+    if (cmd === 'git' && args[0] === '--list-cmds=builtins') return { status: 0, stdout: 'add\ncheckout\ncommit\nconfig\nfetch\nlog\nmerge\npush\nstatus\nswitch\n', stderr: '' }
+    if (cmd === 'git' && args[0] === 'config' && args[1] === '--get') {
+      const valor = alias[String(args[2]).replace(/^alias\./, '')]
+      return valor ? { status: 0, stdout: `${valor}\n`, stderr: '' } : { status: 1, stdout: '', stderr: '' }
+    }
     if (cmd === 'git') return { status: 0, stdout: '', stderr: '' }
     if (cmd === 'gh' && args[1] === 'view') {
       return vista.status === 0
@@ -265,6 +366,10 @@ function correrFalso({ raiz, ramaActual = 'fix/algo', grupos = {}, vista = { sta
 }
 
 const pushSimple = (extra = {}) => ({
+  dir: CWD,
+  dirIrresoluble: null,
+  envoltorio: [],
+  alias: null,
   args: [],
   remoto: null,
   configs: [],
@@ -362,6 +467,79 @@ test('procesar: con varios push en el comando, un deny gana a un ask y un ask a 
   assert.equal(procesar(entrada('git push origin fix/algo && git push origin HEAD:main'), correr).hookSpecificOutput.permissionDecision, 'deny')
   assert.equal(procesar(entrada('git push origin fix/algo && git push --no-verify origin fix/algo'), correr).hookSpecificOutput.permissionDecision, 'ask')
   assert.equal(procesar(entrada('git push origin fix/algo && git push origin fix/algo'), correr), null)
+})
+
+// Sin repo resuelto no hay rama actual, escaneo ni ensayo: lo que se puede
+// denegar por el texto se deniega, y el resto se pregunta; nunca se calla.
+test('prePush: sin repo resuelto, lo estatico se deniega y el resto pide confirmacion', () => {
+  const raiz = repoFalso()
+  const { correr, llamadas } = correrFalso({ raiz })
+  const sinRaiz = (extra) => prePush({ push: pushSimple({ dir: null, dirIrresoluble: 'la carpeta X no existe', ...extra }), raiz: null, sinRaiz: 'la carpeta X no existe', correr })
+  assert.equal(sinRaiz({ destinos: ['main'] }).hookSpecificOutput.permissionDecision, 'deny')
+  assert.equal(sinRaiz({ forzado: true }).hookSpecificOutput.permissionDecision, 'deny')
+  assert.equal(sinRaiz({ remoto: 'upstream' }).hookSpecificOutput.permissionDecision, 'deny')
+  const salida = sinRaiz({})
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /no pude determinar en que repositorio/)
+  assert.ok(!llamadas.some((l) => l.cmd === process.execPath || (l.cmd === 'git' && l.args[0] === 'push')), 'sin repo no se escanea ni se ensaya')
+})
+
+test('prePush: envoltorios y alias piden confirmacion; la URL real del ensayo tiene que ser la del repo de origin aunque el remoto sea explicito', () => {
+  const raiz = repoFalso()
+  const { correr } = correrFalso({ raiz })
+  assert.equal(prePush({ push: pushSimple({ envoltorio: ['env'] }), raiz, correr }).hookSpecificOutput.permissionDecision, 'ask')
+  assert.equal(prePush({ push: pushSimple({ alias: '`p` = `push`' }), raiz, correr }).hookSpecificOutput.permissionDecision, 'ask')
+  // pushurl / pushInsteadOf: git mandaria el push a otro repo bajo el nombre origin.
+  const explicito = { remoto: 'origin', args: ['origin', 'fix/algo'], cabezas: ['fix/algo'], destinos: ['fix/algo'] }
+  const desviado = correrFalso({ raiz, dryRun: ensayo(['*\trefs/heads/fix/algo:refs/heads/fix/algo\t[new branch]'], 'https://github.com/otro/repo.git') })
+  const salida = prePush({ push: pushSimple(explicito), raiz, correr: desviado.correr })
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /pushurl|pushInsteadOf/)
+  // El mismo repo por otro protocolo (fetch https, push ssh) sigue siendo origin.
+  const ssh = correrFalso({ raiz, dryRun: ensayo(['*\trefs/heads/fix/algo:refs/heads/fix/algo\t[new branch]'], 'git@github.com:o/r.git') })
+  assert.equal(prePush({ push: pushSimple(explicito), raiz, correr: ssh.correr }), null)
+})
+
+// Una autorizacion nueva en .datos-autorizados entra a dev por PR, donde el
+// revisor la ve; por push directo a dev se podria autoeximir cualquier dato.
+test('prePush: una autorizacion nueva en .datos-autorizados no entra a dev por push directo', () => {
+  const raiz = repoFalso()
+  const grupos = { secretos: { status: 0, stdout: '[OK  ] sin-secretos: ok\n[skip] excepciones-nuevas: revisar a mano: 1 linea(s) nueva(s) en .datos-autorizados\n' } }
+  const aDev = correrFalso({ raiz, grupos, dryRun: ensayo([' \trefs/heads/fix/algo:refs/heads/dev\t[ok]']) })
+  const salida = prePush({ push: pushSimple({ remoto: 'origin', args: ['origin', 'HEAD:dev'], destinos: ['dev'] }), raiz, correr: aDev.correr })
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /datos-autorizados/)
+  // A la rama de trabajo si: la autorizacion llega a dev por PR.
+  const aRama = correrFalso({ raiz, grupos })
+  assert.equal(prePush({ push: pushSimple({ remoto: 'origin', args: ['-u', 'origin', 'fix/algo'], cabezas: ['fix/algo'], destinos: ['fix/algo'] }), raiz, correr: aRama.correr }), null)
+})
+
+test('procesar: los alias de git que hacen push se analizan como push; lo que no se puede analizar pide confirmacion', () => {
+  const raiz = repoFalso()
+  const entrada = (command, tool_name = 'Bash') => ({ hook_event_name: 'PreToolUse', tool_name, cwd: raiz, tool_input: { command } })
+  const conAlias = correrFalso({ raiz, alias: { p: 'push', lg: 'log --graph', sube: '!git push origin HEAD' } })
+  assert.equal(procesar(entrada('git p origin HEAD:main'), conAlias.correr).hookSpecificOutput.permissionDecision, 'deny')
+  const porAlias = procesar(entrada('git p origin fix/algo'), conAlias.correr)
+  assert.equal(porAlias.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(porAlias.hookSpecificOutput.permissionDecisionReason, /alias/)
+  assert.equal(procesar(entrada('git lg'), conAlias.correr), null)
+  assert.match(procesar(entrada('git sube'), conAlias.correr).hookSpecificOutput.permissionDecisionReason, /alias/)
+  assert.equal(procesar(entrada('git status'), conAlias.correr), null)
+  const { correr } = correrFalso({ raiz })
+  for (const [comando, tool] of [
+    ["sh -c 'git push origin fix/algo'"],
+    ['s=push; git $s origin fix/algo'],
+    ['$a="push"; git $a origin fix/algo', 'PowerShell'],
+    ['cmd="git push origin main"; eval "$cmd"'],
+    ['xargs git < lista.txt'],
+    ['GIT_CONFIG_PARAMETERS="\'alias.p=push\'" git p origin fix/algo'],
+  ]) {
+    const salida = procesar(entrada(comando, tool), correr)
+    assert.equal(salida?.hookSpecificOutput.permissionDecision, 'ask', comando)
+    assert.match(salida.hookSpecificOutput.permissionDecisionReason, /no puedo analizar/)
+  }
+  assert.equal(procesar(entrada('git commit -m "feat: push notifications"'), correr), null)
+  assert.equal(procesar(entrada('git log --grep=push --oneline'), correr), null)
 })
 
 test('prePush: solo se pushea a origin, por nombre y por URL real', () => {
@@ -763,6 +941,81 @@ test('hook real: el push de un tag sobre un commit con secreto se deniega', () =
   const salida = JSON.parse(push(dir, 'git push origin v9.9.9'))
   assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny')
   assert.match(salida.hookSpecificOutput.permissionDecisionReason, /llave\.pem/)
+})
+
+// Las formas que la revision final encontro en silencio: carpeta mal resuelta,
+// entorno o funciones cargados en el mismo comando, git envuelto, alias.
+test('hook real: carpetas, envoltorios, entorno cargado y alias: nada pasa en silencio', () => {
+  const dir = repoReal()
+  fs.writeFileSync(path.join(dir, 'env.sh'), 'export GIT_CONFIG_COUNT=1\n')
+  git(dir, 'add', '-A')
+  git(dir, 'commit', '-q', '-m', 'chore: entorno')
+  const posix = process.platform === 'win32' ? `/${dir[0].toLowerCase()}${dir.slice(2).replace(/\\/g, '/')}` : dir
+  for (const [comando, tool] of [
+    ['cd .. && cd - && git push origin HEAD:main'],
+    ['pushd .. && popd && git push origin HEAD:main'],
+    [`cd "${posix}" && git push origin HEAD:main`],
+    ['env git push origin HEAD:main'],
+    ['cmd /c git push origin HEAD:main'],
+    ['git -C "$PWD" push origin HEAD:main'],
+    ['Set-Location ..; Set-Location -; git push origin HEAD:main', 'PowerShell'],
+  ]) {
+    assert.equal(JSON.parse(push(dir, comando, tool ?? 'Bash')).hookSpecificOutput.permissionDecision, 'deny', comando)
+  }
+  for (const [comando, tool] of [
+    ['source env.sh; git push origin fix/algo'],
+    ['. env.sh && git push origin fix/algo'],
+    ['eval "$(cat env.sh)"; git push origin fix/algo'],
+    ['git() { command git "$@"; }; git push origin fix/algo'],
+    ["sh -c 'git push origin fix/algo'"],
+    ['s=push; git $s origin fix/algo'],
+    ['env git push origin fix/algo'],
+    ['cd "$PWD" && git push origin fix/algo'],
+    ['git -C "$PWD" push origin fix/algo'],
+    ['cd /no/existe 2>/dev/null; git push origin fix/algo'],
+    ['$a="push"; git $a origin fix/algo', 'PowerShell'],
+    ['. .\\env.ps1; git push origin fix/algo', 'PowerShell'],
+    ['function git { git.exe $args }; git push origin fix/algo', 'PowerShell'],
+  ]) {
+    assert.equal(JSON.parse(push(dir, comando, tool ?? 'Bash')).hookSpecificOutput.permissionDecision, 'ask', comando)
+  }
+  assert.equal(push(dir, `cd "${posix}" && git push -u origin fix/algo`), '', 'una ruta literal se resuelve y el push limpio pasa')
+
+  // Un alias que hace push se analiza como push; uno que no, no molesta.
+  git(dir, 'config', 'alias.p', 'push')
+  git(dir, 'config', 'alias.st', 'status')
+  assert.equal(JSON.parse(push(dir, 'git p origin HEAD:main')).hookSpecificOutput.permissionDecision, 'deny')
+  assert.equal(JSON.parse(push(dir, 'git p origin fix/algo')).hookSpecificOutput.permissionDecision, 'ask')
+  assert.equal(push(dir, 'git st'), '')
+  assert.equal(push(dir, 'git st && git push -u origin fix/algo'), '')
+
+  // Parado en main, las formas que esconden la carpeta o envuelven a git tambien se deniegan.
+  git(dir, 'switch', '-q', '-c', 'main')
+  assert.equal(JSON.parse(push(dir, 'cd .. && cd - && git push origin')).hookSpecificOutput.permissionDecision, 'deny')
+  assert.equal(JSON.parse(push(dir, 'env git push origin')).hookSpecificOutput.permissionDecision, 'deny')
+})
+
+test('hook real: un pushurl o un pushInsteadOf que desvia origin a otro repo se deniega', () => {
+  const dir = repoReal()
+  const evil = fs.mkdtempSync(path.join(os.tmpdir(), 'coe-harness evil '))
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'dev', evil])
+  git(dir, 'remote', 'set-url', '--push', 'origin', evil)
+  const salida = JSON.parse(push(dir, 'git push -u origin fix/algo'))
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /pushurl|pushInsteadOf/)
+  git(dir, 'config', '--unset', 'remote.origin.pushurl')
+  assert.equal(push(dir, 'git push -u origin fix/algo'), '')
+})
+
+test('hook real: una autorizacion nueva en .datos-autorizados sube a la rama de trabajo pero no directo a dev', () => {
+  const dir = repoReal()
+  fs.writeFileSync(path.join(dir, '.datos-autorizados'), 'rrhh/nomina-2026.xlsx   # autorizado por Gerencia\n')
+  git(dir, 'add', '-A')
+  git(dir, 'commit', '-q', '-m', 'chore: autorizacion')
+  assert.equal(push(dir, 'git push -u origin fix/algo'), '')
+  const salida = JSON.parse(push(dir, 'git push origin HEAD:dev'))
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /datos-autorizados/)
 })
 
 test('hook real: comandos que no son push ni PR no producen nada', () => {

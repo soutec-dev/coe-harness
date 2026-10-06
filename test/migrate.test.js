@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { main } from '../src/cli.js'
 import { mkRepo, read, write, has, snapshot, replan, verdicts } from './helpers.js'
 import { OBSOLETE, NOOP, computePlan } from '../src/core/plan.js'
@@ -208,4 +209,19 @@ test('apply: una ruta que atraviesa un symlink hacia fuera del repo se bloquea',
   assert.throws(() => apply({ plan: escritura, cwd: dir, manifest: { harnessVersion: '1.0.0' }, vars: {}, detected, lock: null }), /fuera del repo/)
   assert.ok(!fs.existsSync(path.join(fuera, 'x.txt')))
   fs.rmSync(fuera, { recursive: true, force: true })
+})
+
+// En Windows el nombre corto 8.3 de .git (GIT~1) es otra ruta al mismo
+// directorio: pasa el filtro lexico del plan, y es la ruta real la que lo delata.
+test('apply: un dest que llega a .git por su nombre corto 8.3 se bloquea', (t) => {
+  const dir = mkRepo({})
+  execFileSync('git', ['init', '-q', dir])
+  if (!fs.existsSync(path.join(dir, 'GIT~1'))) {
+    t.skip('sin nombres cortos 8.3 en este volumen')
+    return
+  }
+  const detected = { stacks: [], packageManager: null, isEmpty: true }
+  const borrado = { actions: [{ dest: 'GIT~1/HEAD', policy: 'managed', verdict: OBSOLETE, autoPrune: true, reasons: [] }], dirs: [] }
+  assert.throws(() => apply({ plan: borrado, cwd: dir, manifest: { harnessVersion: '1.0.0' }, vars: {}, detected, lock: null, prune: true }), /fuera del repo/)
+  assert.ok(fs.existsSync(path.join(dir, '.git', 'HEAD')))
 })
