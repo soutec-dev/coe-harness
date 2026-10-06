@@ -789,17 +789,25 @@ export function postPR({ objetivo, raiz, correr }) {
 }
 
 // El hook solo verifica y comenta PRs del repo propio (el de origin), nunca
-// cualquier PR donde el token de gh pueda escribir.
+// cualquier PR donde el token de gh pueda escribir. Se compara host y
+// owner/repo: "host/owner/repo" en minusculas, para las formas https, ssh:// y
+// git@host:owner/repo de la URL de origin.
+export function repoDeUrl(url) {
+  const m = String(url ?? '')
+    .trim()
+    .match(/^(?:[a-z+]+:\/\/)?(?:[^@/\s]+@)?([\w.-]+)(?::\d+)?[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i)
+  return m ? `${m[1]}/${m[2]}`.toLowerCase() : null
+}
+
 function repoDelOrigen(raiz, correr) {
   const r = correr('git', ['remote', 'get-url', 'origin'], { cwd: raiz, timeout: 10_000 })
-  const m = r.status === 0 && r.stdout.trim().match(/[/:]([^/:]+\/[^/]+?)(?:\.git)?\/?$/)
-  return m ? m[1].toLowerCase() : null
+  return r.status === 0 ? repoDeUrl(r.stdout) : null
 }
 
 export function prDeEsteRepo(objetivo, repoOrigen) {
-  const m = String(objetivo ?? '').match(/^https:\/\/[\w.-]+\/([\w.-]+\/[\w.-]+)\/pull\/\d+\/?$/)
+  const m = String(objetivo ?? '').match(/^https:\/\/([\w.-]+)\/([\w.-]+\/[\w.-]+)\/pull\/\d+\/?$/)
   if (!m) return !/^https?:/.test(String(objetivo ?? '')) // numero o rama: gh lo resuelve en este repo
-  return repoOrigen != null && m[1].toLowerCase() === repoOrigen
+  return repoOrigen != null && `${m[1]}/${m[2]}`.toLowerCase() === repoOrigen
 }
 
 export function salidaPostToolUse({ estado, texto, url }) {
