@@ -1,0 +1,5 @@
+# Java / JVM
+target/
+build/
+*.class
+.gradle/

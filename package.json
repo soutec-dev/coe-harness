@@ -1,0 +1,31 @@
+{
+  "name": "coe-harness",
+  "version": "1.0.0",
+  "description": "CLI para instalar y actualizar el harness de Claude Code para proyectos externos: flujo GitHub simple, cero credenciales y datos sensibles en el repo, y auditoria de seguridad",
+  "type": "module",
+  "bin": {
+    "coe-harness": "bin/cli.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "templates"
+  ],
+  "engines": {
+    "node": ">=22.4"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:ci": "node --test --test-concurrency=1"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "picocolors": "^1.1.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/soutecdev/coe-harness.git"
+  },
+  "license": "UNLICENSED",
+  "private": false
+}

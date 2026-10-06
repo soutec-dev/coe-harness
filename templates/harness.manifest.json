@@ -1,0 +1,208 @@
+{
+  "harnessVersion": "1.0.0",
+  "skills": [
+    {
+      "id": "coe-github",
+      "label": "coe-github — flujo Git/GitHub: dos ramas, main protegido, PR obligatorio (obligatoria)",
+      "required": true
+    },
+    {
+      "id": "datos-sensibles",
+      "label": "datos-sensibles — credenciales y datos de la organización fuera del repo (obligatoria)",
+      "required": true
+    },
+    {
+      "id": "security-audit",
+      "label": "security-audit — auditoría de seguridad gateada sobre /security-review (obligatoria)",
+      "required": true
+    },
+    {
+      "id": "security-report-standard",
+      "label": "security-report-standard — estándar del informe de seguridad (obligatoria)",
+      "required": true
+    },
+    {
+      "id": "adr-new",
+      "label": "adr-new — documentar decisiones con ADRs"
+    },
+    {
+      "id": "harness-upgrade",
+      "label": "harness-upgrade — actualizar el harness desde Claude"
+    }
+  ],
+  "files": [
+    {
+      "id": "claude-md",
+      "src": "base/CLAUDE.md",
+      "dest": "CLAUDE.md",
+      "render": true,
+      "policy": "user-owned",
+      "critical": true
+    },
+    {
+      "id": "notes",
+      "src": "base/notes.md",
+      "dest": "notes.md",
+      "render": true,
+      "policy": "user-owned",
+      "critical": true
+    },
+    {
+      "id": "readme",
+      "src": "base/README.md",
+      "dest": "README.md",
+      "render": true,
+      "policy": "user-owned",
+      "when": "empty-repo"
+    },
+    {
+      "id": "env-example",
+      "src": "base/env.example",
+      "dest": ".env.example",
+      "policy": "user-owned",
+      "when": "empty-repo"
+    },
+    {
+      "id": "settings",
+      "src": "base/claude/settings.json",
+      "dest": ".claude/settings.json",
+      "policy": "merge-json"
+    },
+    {
+      "id": "hook-reglas-pr",
+      "src": "base/claude/hooks/reglas-pr.mjs",
+      "dest": ".claude/hooks/reglas-pr.mjs",
+      "policy": "managed",
+      "critical": true
+    },
+    {
+      "id": "gitignore",
+      "src": "fragments/gitignore",
+      "dest": ".gitignore",
+      "policy": "append-block"
+    },
+    {
+      "id": "datos-autorizados",
+      "src": "base/datos-autorizados",
+      "dest": ".datos-autorizados",
+      "policy": "user-owned"
+    },
+    {
+      "id": "pr-template",
+      "src": "base/github/pull_request_template.md",
+      "dest": ".github/pull_request_template.md",
+      "policy": "user-owned"
+    },
+    {
+      "id": "codeowners",
+      "src": "base/github/CODEOWNERS",
+      "dest": ".github/CODEOWNERS",
+      "policy": "user-owned"
+    },
+    {
+      "id": "check-pr-rules",
+      "src": "base/scripts/check-pr-rules.mjs",
+      "dest": "scripts/check-pr-rules.mjs",
+      "policy": "managed",
+      "critical": true
+    },
+    {
+      "id": "workflow-reglas-pr",
+      "src": "base/github/workflows/reglas-pr.yml",
+      "dest": ".github/workflows/reglas-pr.yml",
+      "policy": "managed"
+    },
+    {
+      "id": "tag-release",
+      "src": "base/scripts/tag-release.mjs",
+      "dest": "scripts/tag-release.mjs",
+      "policy": "managed",
+      "when": "stack:node"
+    },
+    {
+      "id": "workflow-tag-release",
+      "src": "base/github/workflows/tag-release.yml",
+      "dest": ".github/workflows/tag-release.yml",
+      "policy": "managed",
+      "when": "stack:node"
+    },
+    {
+      "id": "skill-coe-github",
+      "src": "base/claude/skills/coe-github/SKILL.md",
+      "dest": ".claude/skills/coe-github/SKILL.md",
+      "policy": "managed",
+      "skill": "coe-github"
+    },
+    {
+      "id": "skill-datos-sensibles",
+      "src": "base/claude/skills/datos-sensibles/SKILL.md",
+      "dest": ".claude/skills/datos-sensibles/SKILL.md",
+      "policy": "managed",
+      "skill": "datos-sensibles"
+    },
+    {
+      "id": "skill-security-audit",
+      "src": "base/claude/skills/security-audit/SKILL.md",
+      "dest": ".claude/skills/security-audit/SKILL.md",
+      "policy": "managed",
+      "skill": "security-audit"
+    },
+    {
+      "id": "skill-security-audit-report-template",
+      "src": "base/claude/skills/security-audit/report-template.md",
+      "dest": ".claude/skills/security-audit/report-template.md",
+      "policy": "managed",
+      "skill": "security-audit"
+    },
+    {
+      "id": "skill-security-report-standard",
+      "src": "base/claude/skills/security-report-standard/SKILL.md",
+      "dest": ".claude/skills/security-report-standard/SKILL.md",
+      "policy": "managed",
+      "skill": "security-report-standard"
+    },
+    {
+      "id": "skill-adr-new",
+      "src": "base/claude/skills/adr-new/SKILL.md",
+      "dest": ".claude/skills/adr-new/SKILL.md",
+      "policy": "managed",
+      "skill": "adr-new"
+    },
+    {
+      "id": "adr-readme",
+      "src": "base/docs/decisions/README.md",
+      "dest": "docs/decisions/README.md",
+      "policy": "managed",
+      "skill": "adr-new"
+    },
+    {
+      "id": "adr-template",
+      "src": "base/docs/decisions/_template.md",
+      "dest": "docs/decisions/_template.md",
+      "policy": "managed",
+      "skill": "adr-new"
+    },
+    {
+      "id": "skill-harness-upgrade",
+      "src": "base/claude/skills/harness-upgrade/SKILL.md",
+      "dest": ".claude/skills/harness-upgrade/SKILL.md",
+      "policy": "managed",
+      "skill": "harness-upgrade"
+    }
+  ],
+  "dirs": [
+    {
+      "dest": "src",
+      "when": "empty-repo"
+    },
+    {
+      "dest": "tests",
+      "when": "empty-repo"
+    },
+    {
+      "dest": "scripts",
+      "when": "empty-repo"
+    }
+  ],
+  "obsolete": []
+}
