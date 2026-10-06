@@ -471,7 +471,13 @@ function commitear(dir, archivos, mensaje) {
   git(dir, 'commit', '-q', '-m', mensaje)
 }
 
-function correrCheck(dir, args, env = process.env) {
+// Entorno hermetico: en GitHub Actions el runner trae GITHUB_BASE_REF (la base
+// del PR en curso) y el script la tomaria como base del diff en el repo de
+// prueba, que no tiene esa rama.
+const ENTORNO_LIMPIO = { ...process.env }
+delete ENTORNO_LIMPIO.GITHUB_BASE_REF
+
+function correrCheck(dir, args, env = ENTORNO_LIMPIO) {
   try {
     const stdout = execFileSync(process.execPath, [SCRIPT, ...args], { cwd: dir, encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] })
     return { status: 0, stdout }
