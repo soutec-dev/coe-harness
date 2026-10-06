@@ -214,3 +214,21 @@ en `ask`**, nunca en silencio.
   aprobaciones), H-09 (`#v1` móvil), H-12 (palabras de ejemplo), N-09
   (cuadraticidad bajo el tope, degrada a `ask`), N-12 parcial (`Edit` sobre las
   plantillas en este repo), N-13 (refs locales bajo `refs/remotes/origin/*`).
+
+## Condiciones de la revisión final 3 (S-01, S-02) — cumplidas en `2666c42`
+
+La revisión final del ciclo 3 pasó el gate (sin Critical/High abiertos) y recomendó
+`READY WITH CONDITIONS` con dos residuales Medium del parser, ambos de circunvención
+deliberada y de alcance estrecho, y ambos arreglos de pocas líneas. Se aplicaron
+antes del PR, en el commit `2666c42`, con sus tests:
+
+| Hallazgo | Estado | Cambio |
+|---|---|---|
+| S-01 (Medium) lanzador con el subcomando empacado | Cerrado | `invocacionesDeGit`: un git envuelto cuyo subcomando extraído no es `push` pero cuyo segmento menciona `git push` (`Start-Process git -ArgumentList "push","origin","HEAD:main"`, `saps git "push",…`, `-FilePath git -ArgumentList push,…`) es una sospecha → `ask`; `git commit -m "despues: git push"` (git directo) sigue sin sospecha |
+| S-02 (Medium) alias de git antes del push | Cerrado | `cambiosPorAlias`: por cada push, los segmentos previos que invocan git con un subcomando literal no nativo se resuelven con `git config --get alias.<sub>`; un alias que apunta a un subcomando que cambia de rama/destino o a un `!script` cuenta como cambio `destino`, uno que commitea como `contenido` → `ask` (`git co main && git push origin fix/x` con `co=checkout`); `git lg && git push` (`lg=log`) sigue pasando |
+
+Pruebas agregadas: parser (cuatro lanzadores de PowerShell → sospecha, `Start-Process
+notepad` no), `procesar` con alias `co`/`ci`/`lg` previos al push, hook real con alias
+`co` (`git co main && git push origin fix/algo` y `git co main && git push origin` →
+`ask`) y con `Start-Process`/`saps` en PowerShell → `ask`. La re-verificación del
+revisor sobre `2666c42` queda anexada al final de `05-final-security-review.md`.

@@ -161,4 +161,13 @@ Tercer ciclo (hallazgos de la revisión final del ciclo 2, R-01 a R-09):
   y los archivos de arranque del shell; el README enumera lo que el hook no ve.
 - **R-09** `set -e`/`set -euo pipefail` ya no cuentan como cambio de entorno.
 
+Condiciones de la revisión final del ciclo 3 (gate superado), cerradas antes del
+release:
+
+- **S-01** Un lanzador con el subcomando empacado en sus argumentos
+  (`Start-Process git -ArgumentList "push","origin","HEAD:main"`, `saps git …`)
+  pide confirmación.
+- **S-02** Un alias de git usado antes del push (`git co main && git push`, con
+  `co = checkout`) se resuelve y cuenta como el comando al que apunta.
+
 [1.0.0]: https://github.com/soutec-dev/coe-harness/releases/tag/v1.0.0
