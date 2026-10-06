@@ -27,6 +27,28 @@ Sin registry, sin `.npmrc`, sin token. Hace falta git, Node ≥ 22.4 y GitHub CL
 sesión. Funciona con cuentas gratuitas de GitHub sin configurar nada (ver
 [GitHub Actions y planes de GitHub](#github-actions-y-planes-de-github)).
 
+## Instalar pidiéndoselo a un agente
+
+No hace falta saber nada del harness para instalarlo. Abre Claude Code en la raíz del
+repositorio (nuevo o con código, con el remoto de GitHub ya configurado) y pégale
+esto:
+
+> Instala el harness **coe-harness** en este repositorio: ejecuta
+> `npx github:soutec-dev/coe-harness#v1 init` y responde sus preguntas conmigo
+> (nombre del proyecto, tipo, idioma y qué skills opcionales instalar). Si el repo no
+> tiene rama `dev`, créala desde `main` y pushéala. Al terminar, muéstrame qué
+> archivos creó, dime si la protección de `main` quedó configurada en GitHub o por
+> qué no, y recuérdame reiniciar la sesión para que carguen los hooks.
+
+Lo que el agente va a necesitar en la máquina: `git`, Node ≥ 22.4 y `gh` autenticado
+(`gh auth login`). El instalador nunca pisa un archivo existente (si ya hay un
+`CLAUDE.md`, deja la propuesta al lado como `CLAUDE.md.new`), así que es seguro
+correrlo sobre un proyecto en marcha. Después de instalar hay que **reiniciar Claude
+Code**: los hooks se cargan al iniciar la sesión, no en caliente.
+
+Para actualizar más adelante alcanza con decirle al agente "actualiza el harness"
+(skill `harness-upgrade`): trae la última versión sin pisar lo que el equipo editó.
+
 ## Qué instala
 
 ```
