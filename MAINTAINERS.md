@@ -142,7 +142,7 @@ el push**, no solo pinta un check en rojo. Las vías de escape (`coe:no-secreto`
    y el estado de la `security-audit` (el check `pr-metadata` lo exige).
 5. Tags: `tag-release.yml` crea `vX.Y.Z` y mueve `vN` al mergear. Si Actions no corre,
    `git fetch origin && node scripts/tag-release.mjs --ref origin/main`.
-6. Los proyectos corren `npx github:soutecdev/coe-harness#v1 upgrade` y reciben la
+6. Los proyectos corren `npx github:soutec-dev/coe-harness#v1 upgrade` y reciben la
    nueva versión. Un breaking sube el major y estrena su propio tag móvil (`v2`); los
    proyectos cambian de major editando la ref.
 

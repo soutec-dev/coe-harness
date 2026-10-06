@@ -48,4 +48,4 @@ herramientas (tablero, trackers, monitor, modos). Ver
   transferibilidad (ningún archivo emitido menciona herramientas internas) y
   dogfood (las copias locales son idénticas a las distribuidas).
 
-[1.0.0]: https://github.com/soutecdev/coe-harness/releases/tag/v1.0.0
+[1.0.0]: https://github.com/soutec-dev/coe-harness/releases/tag/v1.0.0

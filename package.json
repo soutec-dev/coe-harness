@@ -24,7 +24,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/soutecdev/coe-harness.git"
+    "url": "git+https://github.com/soutec-dev/coe-harness.git"
   },
   "license": "UNLICENSED",
   "private": false

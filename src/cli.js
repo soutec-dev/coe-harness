@@ -77,7 +77,7 @@ export async function main(argv, cwd) {
 }
 
 // Sin comando explicito, el CLI decide segun lo que encuentra. Un dev que corre
-// `npx github:soutecdev/coe-harness#v1` en un repo cualquiera obtiene lo correcto
+// `npx github:soutec-dev/coe-harness#v1` en un repo cualquiera obtiene lo correcto
 // sin leer el help.
 function autoDetect(cwd) {
   if (readLockfile(cwd)) return 'upgrade'
@@ -94,7 +94,7 @@ function printHelp() {
 ${pc.bold('coe-harness')} — harness de Claude Code para proyectos externos
 
 ${pc.bold('USO')}
-  npx github:soutecdev/coe-harness#v1 [comando] [flags]
+  npx github:soutec-dev/coe-harness#v1 [comando] [flags]
 
 ${pc.bold('COMANDOS')}
   ${pc.cyan('init')}      Instala el harness. Sirve igual en un repo vacio y en uno con codigo.

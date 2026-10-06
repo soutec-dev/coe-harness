@@ -44,7 +44,7 @@ notes.md      scratchpad persistente
 
 Este repo tiene instalado **coe-harness**. Las skills viven en `.claude/skills/`,
 versionadas junto al código, y se eligen al instalar con
-`npx github:soutecdev/coe-harness#v1` (`coe-github`, `datos-sensibles`,
+`npx github:soutec-dev/coe-harness#v1` (`coe-github`, `datos-sensibles`,
 `security-audit` y `security-report-standard` son obligatorias y siempre están).
 No hay agentes ni flujos fijos: el modelo trabaja directo, con el flujo Git y las
 reglas de secretos y seguridad como únicas reglas duras.

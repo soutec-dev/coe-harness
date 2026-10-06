@@ -14,7 +14,7 @@ No hace falta que el usuario pida cada paso por separado.
 1. **Estado actual.** Corre:
 
    ```
-   npx -y github:soutecdev/coe-harness#v1 status
+   npx -y github:soutec-dev/coe-harness#v1 status
    ```
 
    Si ya está en la última versión y no hay archivos obsoletos ni `.new`
@@ -23,7 +23,7 @@ No hace falta que el usuario pida cada paso por separado.
 2. **Diagnóstico en seco**, siempre antes de tocar nada:
 
    ```
-   npx -y github:soutecdev/coe-harness#v1 upgrade --dry-run --prune
+   npx -y github:soutec-dev/coe-harness#v1 upgrade --dry-run --prune
    ```
 
    El plan distingue dos grupos de obsoletos: los que se pueden borrar sin
@@ -34,7 +34,7 @@ No hace falta que el usuario pida cada paso por separado.
 3. Aplica directo, sin esperar confirmación intermedia:
 
    ```
-   npx -y github:soutecdev/coe-harness#v1 upgrade --prune
+   npx -y github:soutec-dev/coe-harness#v1 upgrade --prune
    ```
 
    Esto actualiza los archivos que no editaste, deja `.new` al lado de los que sí

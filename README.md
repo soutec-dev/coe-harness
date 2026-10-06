@@ -19,7 +19,7 @@ Tres reglas duras, y nada más:
    `security-audit` antes de cada release `dev` → `main`.
 
 ```bash
-npx github:soutecdev/coe-harness#v1
+npx github:soutec-dev/coe-harness#v1
 ```
 
 Sin registry, sin `.npmrc`, sin token. Solo hace falta git y Node ≥ 22.4.

@@ -9,7 +9,7 @@ Dominio: [describir en 1-2 líneas qué hace este proyecto].
 
 Harness `coe-harness {{HARNESS_VERSION}}`. Sin agentes ni flujos fijos: el modelo
 trabaja directo. Las skills viven en `.claude/skills/` y se aplican solas cuando el
-contexto lo amerita (se eligen al instalar con `npx github:soutecdev/coe-harness#v1`;
+contexto lo amerita (se eligen al instalar con `npx github:soutec-dev/coe-harness#v1`;
 las cuatro primeras son obligatorias y siempre están):
 
 - `coe-github` — flujo Git/GitHub: dos ramas, `main` protegido, PR obligatorio.

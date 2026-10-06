@@ -10,7 +10,7 @@ const YES = ['--yes', '--name', 'acme', '--type', 'backend', '--lang', 'es']
 // milestones, espejos en trackers, vault de documentacion, monitores). Un repo
 // instalado se puede transferir a otro equipo u otra empresa tal cual. La unica
 // referencia externa permitida es la URL del propio harness, para `upgrade`.
-const PROHIBIDO = /soubunker|jira|azure devops|azdo|souclaude|vault\.local|Project-<PREFIJO>|milestone|kanban|observatorio|soutec(?!dev\/coe-harness)/i
+const PROHIBIDO = /soubunker|jira|azure devops|azdo|souclaude|vault\.local|Project-<PREFIJO>|milestone|kanban|observatorio|soutec(?!-dev\/coe-harness)/i
 
 test('transferibilidad: ningun archivo emitido menciona herramientas internas de la organizacion de origen', async () => {
   const dir = mkRepo({ 'package.json': '{"name":"acme","version":"1.0.0"}' })

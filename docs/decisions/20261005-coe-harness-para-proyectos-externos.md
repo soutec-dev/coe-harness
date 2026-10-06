@@ -41,7 +41,7 @@ arrastrado por él.
 ## Decision
 
 Crear **`coe-harness`**, un generador hermano en su propio repositorio
-(`soutecdev/coe-harness`, `npx github:soutecdev/coe-harness#v1`), que:
+(`soutec-dev/coe-harness`, `npx github:soutec-dev/coe-harness#v1`), que:
 
 1. **Reutiliza el motor** del harness interno copiado tal cual (`plan`, `apply`,
    `lockfile`, `manifest`, `hash`, `render`, `block`, `jsonmerge`, `verify`,

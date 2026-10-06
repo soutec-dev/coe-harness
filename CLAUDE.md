@@ -3,7 +3,7 @@
 ## Contexto
 
 Proyecto de automation. Stack: Node.js.
-Dominio: el generador de `coe-harness` — un CLI (`npx github:soutecdev/coe-harness#v1`)
+Dominio: el generador de `coe-harness` — un CLI (`npx github:soutec-dev/coe-harness#v1`)
 que instala y actualiza la superficie Claude (skills, settings, hook `reglas-pr`,
 checks de PR, workflows) en repos de **proyectos externos**: repos que se trabajan
 con otras empresas o que van a transferirse, y que por eso no dependen de ninguna
@@ -13,7 +13,7 @@ herramienta interna. Este repo se instala el harness a sí mismo (dogfood).
 
 Harness `coe-harness 1.0.0`. Sin agentes ni flujos fijos: el modelo
 trabaja directo. Las skills viven en `.claude/skills/` y se aplican solas cuando el
-contexto lo amerita (se eligen al instalar con `npx github:soutecdev/coe-harness#v1`;
+contexto lo amerita (se eligen al instalar con `npx github:soutec-dev/coe-harness#v1`;
 las cuatro primeras son obligatorias y siempre están):
 
 - `coe-github` — flujo Git/GitHub: dos ramas, `main` protegido, PR obligatorio.
