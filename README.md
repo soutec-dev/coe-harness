@@ -191,6 +191,39 @@ por `workflow_dispatch:` y se quita `reglas-pr` de los checks requeridos de `mai
 reaplica): el hook de la sesión sigue cubriendo el push y el PR, y los tags los crea
 el agente con `node scripts/tag-release.mjs --ref origin/main`.
 
+## Seguridad: qué garantiza y qué no
+
+Antes del primer release el harness pasó por su propia skill `security-audit`
+(informe en `docs/security/`). Lo que conviene saber al adoptarlo:
+
+- **El hook trabaja sobre el comando y sobre el ensayo de git.** Además de parsear
+  el texto, le pide a git que ensaye el push (`--dry-run`) y deniega si el destino
+  real es `main`, aunque el texto no lo diga (upstream, `push.default`,
+  `heads/main`). Lo que no puede resolver (expansiones del shell, `git -c`,
+  `--no-verify`) pide confirmación; nunca deja pasar en silencio. Lo que no ve:
+  alias de git definidos en `.gitconfig` y pushes hechos fuera de Claude Code; para
+  eso está la protección de `main` en GitHub, donde el plan la ofrece.
+- **Solo se pushea a `origin`.** Otro remoto o una URL se deniegan en la sesión.
+- **Las excepciones son del usuario.** `.datos-autorizados` vale cuando ya está en
+  `dev` (el check lo lee de `origin/dev`), y los marcadores `coe:no-secreto` nuevos
+  se listan en el resultado para el revisor. El agente no puede editar los
+  guardarraíles con sus tools de edición (`.claude/hooks/`, `settings.json`,
+  `scripts/check-pr-rules.mjs`, `.datos-autorizados`, workflows).
+- **Con 0 aprobaciones obligatorias, el autor de un PR controla el check**
+  (`reglas-pr` corre el script del propio PR). Es la contrapartida de no trabar
+  equipos de dos personas. Equipos con dos o más revisores deben subir a 1
+  aprobación y activar "require review from code owners" en Settings > Branches:
+  `init`/`upgrade` nunca rebajan lo que se endureció a mano, solo lo completan.
+- **`#v1` es un tag móvil** (parches sin intervención). Quien necesite fijar
+  versión usa `#vX.Y.Z`. Los tags inmutables `vX.Y.Z` de este repo están
+  protegidos contra cambios y borrados; las acciones de los workflows van fijadas
+  por SHA y las dependencias con versión exacta.
+- **Lo que el escaneo no detecta**: nombres sueltos, datos sin forma de patrón,
+  binarios, `.svg`, `.map`, lockfiles, líneas de más de 20 000 caracteres (se
+  avisan), secretos codificados y valores con palabras de ejemplo. Las reglas de
+  `Read` frenan la tool `Read`, no `cat` en Bash: el control real es el gate de
+  push más la revisión humana.
+
 ## Desarrollo
 
 ```bash

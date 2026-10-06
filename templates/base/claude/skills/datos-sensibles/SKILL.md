@@ -38,7 +38,11 @@ Ante la duda: **es sensible**. Pregunta antes de commitear, no después.
   demo" no es una autorización.
 - **El usuario registra la autorización en `.datos-autorizados`** (raíz del repo):
   una ruta o glob por línea, con un comentario que diga quién autorizó, cuándo y
-  para qué. Cambiar ese archivo exige revisión del coordinador (CODEOWNERS).
+  para qué. **La autorización vale cuando ya está en `dev`**: el check la lee de
+  `origin/dev`, no del working tree, así que un mismo commit no puede traer el
+  dato y su propia exención. Primero se mergea la línea de autorización (un PR
+  chico), después entran los datos. Cambiar ese archivo pasa por revisión del
+  coordinador (CODEOWNERS, donde el plan de GitHub lo aplica).
 - **El agente nunca escribe en `.datos-autorizados`** ni agrega el marcador
   `coe:no-secreto` a una línea. Si el usuario te lo pide, dile que lo haga él: la
   autorización es un acto humano y debe quedar trazado como tal.
@@ -105,20 +109,32 @@ Casi nunca hace falta el dato real para programar, probar o documentar:
 
 El harness pone varias capas, cada una cubre lo que la anterior no ve:
 
-1. `.claude/settings.json` deniega la lectura de archivos de credenciales: el
-   agente no puede copiar lo que no puede leer.
+1. `.claude/settings.json` deniega la lectura directa de archivos de credenciales
+   con la tool `Read` (es una traba, no un muro: no cubre `cat` en Bash) y la
+   edición con las tools de edición de los guardarraíles mismos (`.claude/hooks/`,
+   `.claude/settings.json`, `scripts/check-pr-rules.mjs`, `.datos-autorizados`,
+   `.github/workflows/`).
 2. `.gitignore` excluye los archivos de credenciales típicos y los volcados.
 3. El hook `reglas-pr` deniega, antes de cada `git push`, los commits que suben
    archivos de credenciales, llaves/tokens/contraseñas en el contenido o datos
    personales y de nómina (documentos de identidad, tarjetas, listados de
-   correos, nombres de archivo de nómina o clientes), salvo las rutas registradas
-   en `.datos-autorizados`.
+   correos, nombres de archivo de nómina o clientes), salvo las rutas ya
+   autorizadas en el `.datos-autorizados` de `dev`. Incluye los merge commits.
+   Si no puede verificar (un error, un timeout), pide confirmación en vez de
+   dejar pasar.
 4. El mismo check corre en CI (`reglas-pr.yml`) para lo que llega desde fuera de
-   la sesión, y la plantilla del PR obliga a declarar los datos.
+   la sesión, y la plantilla del PR obliga a declarar los datos. Los marcadores
+   `coe:no-secreto` y las líneas nuevas de `.datos-autorizados` que lleguen en el
+   diff aparecen listados en el resultado (`excepciones-nuevas`), para que el
+   revisor los vea.
 
 Las heurísticas detectan formatos conocidos; **no detectan un nombre y apellido
 sueltos, un salario en una celda sin encabezado ni un dato que no tiene forma de
-patrón**. Esa parte es tuya: si sabes que es un dato de una persona real, no entra.
+patrón**. Tampoco escanean binarios, `.svg`, `.map`, lockfiles, líneas de más de
+20 000 caracteres (se cuentan y se avisan), secretos codificados en base64/hex,
+ni valores que contienen palabras de ejemplo (`example`, `sample`, `dummy`,
+`fake`, `your-`). Esa parte es tuya: si sabes que es un dato de una persona real
+o una credencial, no entra, tenga la forma que tenga.
 
 ## Checklist antes de commitear
 

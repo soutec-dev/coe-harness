@@ -3,6 +3,7 @@ import path from 'node:path'
 import { TEMPLATES_DIR } from './manifest.js'
 import { toPosix } from './fsx.js'
 import { SIGNATURES } from './detect.js'
+import { destSeguro } from './plan.js'
 
 export const ERROR = 'error'
 export const WARNING = 'warning'
@@ -145,12 +146,25 @@ export function findMissingCriticalFiles(manifest, root = TEMPLATES_DIR) {
   return errors
 }
 
+// Todo dest del manifest (files y obsolete) es una ruta relativa POSIX dentro
+// del repo: la misma regla que computePlan aplica al lockfile.
+export function findUnsafeDests(manifest) {
+  const errors = []
+  for (const entry of [...(manifest.files ?? []), ...(manifest.obsolete ?? [])]) {
+    if (!destSeguro(entry.dest)) {
+      errors.push({ type: ERROR, code: 'unsafe-dest', message: `dest "${entry.dest}" no es una ruta relativa segura dentro del repo.` })
+    }
+  }
+  return errors
+}
+
 export function verifyManifest(manifest, root = TEMPLATES_DIR) {
   const errors = [
     ...findMissingSrcFiles(manifest, root),
     ...findDuplicateIds(manifest),
     ...findDuplicateDests(manifest),
     ...findMissingCriticalFiles(manifest, root),
+    ...findUnsafeDests(manifest),
   ]
   const warnings = [...findOrphanTemplateFiles(manifest, root), ...findOrphanFragments(root)]
   return { errors, warnings }

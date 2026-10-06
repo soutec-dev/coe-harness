@@ -1,18 +1,7 @@
-import { execFileSync } from 'node:child_process'
 import * as ui from '../ui.js'
 import { computePlan, writeActions, OBSOLETE, NOOP, LOCAL_EDIT } from '../core/plan.js'
 import { apply } from '../core/apply.js'
 import { protegeBranchMain } from '../core/github-protect.js'
-
-// execFile con args en array: nunca pasa por el shell, asi que las rutas con
-// espacios (OneDrive, "Mis documentos") dejan de ser un problema.
-export function gitUserName(cwd) {
-  try {
-    return execFileSync('git', ['config', 'user.name'], { cwd, encoding: 'utf8' }).trim() || null
-  } catch {
-    return null
-  }
-}
 
 const TYPES = ['backend', 'frontend', 'data', 'ml', 'automation', 'infra', 'integration']
 
@@ -54,10 +43,9 @@ export async function resolveVars({ flags, lock, detected, cwd, manifest }) {
     PROJECT_TYPE: projectType,
     STACK: stack,
     LANGUAGE: lang === 'en' ? 'inglés' : 'español',
-    // Sticky: se siembra una vez. Si se recalculara en cada corrida, un cambio de
-    // identidad de git haria que el motor viera "el template cambio" y generara
-    // un .new espurio sin que nada real haya cambiado.
-    OWNER: prev.OWNER ?? gitUserName(cwd) ?? 'por definir',
+    // Se completa a mano en el README: el repo esta pensado para transferirse y
+    // no commitea el nombre de una persona por defecto. Sticky, como el resto.
+    OWNER: prev.OWNER ?? 'por definir',
     HARNESS_VERSION: manifest.harnessVersion,
   }
 }
@@ -150,7 +138,21 @@ export async function planAndApply({ manifest, cwd, lock, vars, detected, flags,
 
   report(result, plan, manifest)
   reportSkippedByStack(plan)
+  reportDestsIgnorados(plan)
   return 0
+}
+
+// Un dest del lockfile fuera del repo (".." o ruta absoluta) no es un error del
+// usuario: es un lockfile manipulado, y hay que decirlo.
+function reportDestsIgnorados(plan) {
+  if (!plan.destsIgnorados?.length) return
+  ui.log.warn(
+    [
+      'El lockfile (.claude/harness.json) declara rutas fuera del repo, que se IGNORARON (no se borran ni se respaldan):',
+      ...plan.destsIgnorados.map((d) => `    ${d}`),
+      'Revisa quien toco el lockfile: una ruta asi no la escribe este CLI.',
+    ].join('\n')
+  )
 }
 
 // Entries con "when": "stack:<id>" (ej. tag-release, atado a Node) no se

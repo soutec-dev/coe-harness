@@ -12,6 +12,7 @@ import {
   findDuplicateIds,
   findDuplicateDests,
   findMissingCriticalFiles,
+  findUnsafeDests,
 } from '../src/core/verify.js'
 
 // Fabrica un directorio temporal con la forma de templates/: root/base/**.
@@ -46,6 +47,13 @@ test('verify: el manifest real del repo no tiene criticos faltantes', () => {
 
 test('verify: los fragmentos reales de gitignore corresponden todos a base o a un stack', () => {
   assert.deepEqual(findOrphanFragments(), [])
+})
+
+test('verify: el manifest real no tiene dest inseguros, y uno con ".." o bajo .git/ es error', () => {
+  assert.deepEqual(findUnsafeDests(loadManifest()), [])
+  const manifest = { files: [{ id: 'x', src: 'base/x', dest: '../x', policy: 'managed' }], obsolete: [{ dest: '.git/config', reason: 'r' }] }
+  assert.equal(findUnsafeDests(manifest).length, 2)
+  assert.ok(findUnsafeDests(manifest).every((e) => e.code === 'unsafe-dest'))
 })
 
 test('verify: harnessVersion del manifest coincide con la version de package.json', () => {

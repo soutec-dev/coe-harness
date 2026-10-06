@@ -35,6 +35,11 @@
       "Read(~/.git-credentials)",
       "Read(~/.npmrc)",
       "Read(~/.pypirc)",
+      "Edit(./.claude/hooks/**)",
+      "Edit(./.claude/settings.json)",
+      "Edit(./scripts/check-pr-rules.mjs)",
+      "Edit(./.datos-autorizados)",
+      "Edit(./.github/workflows/**)",
       "Bash(git push origin main*)",
       "Bash(git push * main)",
       "Bash(git push * *:main*)",
@@ -59,8 +64,14 @@
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "Bash(git push --force-with-lease*)",
+      "Bash(git push --no-verify*)",
+      "Bash(git -c *)",
       "Bash(git filter-repo:*)",
-      "Bash(git filter-branch:*)"
+      "Bash(git filter-branch:*)",
+      "Bash(gh api -X *)",
+      "Bash(gh api --method *)",
+      "Bash(gh api -f *)",
+      "Bash(gh api -F *)"
     ]
   },
   "hooks": {
@@ -70,9 +81,8 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git push:*)",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 60
+            "timeout": 90
           }
         ]
       },
@@ -81,9 +91,8 @@
         "hooks": [
           {
             "type": "command",
-            "if": "PowerShell(git push:*)",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 60
+            "timeout": 90
           }
         ]
       }
@@ -94,7 +103,6 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(gh pr:*)",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
             "timeout": 240
           }
@@ -105,7 +113,6 @@
         "hooks": [
           {
             "type": "command",
-            "if": "PowerShell(gh pr:*)",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
             "timeout": 240
           }

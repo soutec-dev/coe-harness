@@ -19,9 +19,23 @@ export const LOCAL_EDIT = 'local-edit' // el usuario lo edito, el template no ca
 export const OBSOLETE = 'obsolete' // estaba en el lockfile, ya no esta en el manifest -> ofrecer borrado
 export const MIGRATE = 'migrate' // el usuario lo edito y una migracion aplica -> solo la migracion, en el lugar
 
+// Un dest que viene del lockfile o de manifest.obsolete es dato: el lockfile
+// esta commiteado y cualquier PR puede tocarlo. Solo se acepta una ruta
+// relativa, POSIX, sin "..", sin raiz y fuera de .git/; lo demas se ignora (y
+// se reporta), nunca se borra ni se respalda.
+export function destSeguro(dest) {
+  if (typeof dest !== 'string' || !dest) return false
+  if (dest.includes('\\') || dest.startsWith('/') || /^[A-Za-z]:/.test(dest)) return false
+  const partes = dest.split('/')
+  if (partes.some((p) => p === '' || p === '.' || p === '..')) return false
+  if (partes[0] === '.git') return false
+  return true
+}
+
 export function computePlan({ manifest, cwd, lock, vars, detected, force = false, skills }) {
   const actions = []
   const skippedByStack = []
+  const destsIgnorados = []
   const fromVersion = lock?.harnessVersion ?? '0.0.0'
   const seenDests = new Set()
 
@@ -80,6 +94,10 @@ export function computePlan({ manifest, cwd, lock, vars, detected, force = false
   // acomodarlo a su gusto y --prune exige la confirmacion escrita de siempre.
   for (const dest of Object.keys(lock?.files ?? {})) {
     if (seenDests.has(dest)) continue
+    if (!destSeguro(dest)) {
+      destsIgnorados.push(dest)
+      continue
+    }
     const abs = path.join(cwd, ...dest.split('/'))
     const lockEntry = lock.files[dest]
     const raw = lockEntry.binary ? readBytesIfExists(abs) : readIfExists(abs)
@@ -102,6 +120,10 @@ export function computePlan({ manifest, cwd, lock, vars, detected, force = false
   // (exigen confirmacion) por seguridad.
   for (const dead of manifest.obsolete ?? []) {
     if (seenDests.has(dead.dest)) continue
+    if (!destSeguro(dead.dest)) {
+      destsIgnorados.push(dead.dest)
+      continue
+    }
     const abs = path.join(cwd, ...dead.dest.split('/'))
     if (readIfExists(abs) == null) continue
     const lockEntry = lock?.files?.[dead.dest]
@@ -112,7 +134,7 @@ export function computePlan({ manifest, cwd, lock, vars, detected, force = false
 
   const dirs = (manifest.dirs ?? []).filter((d) => !(d.when === 'empty-repo' && !detected.isEmpty))
 
-  return { actions, dirs, fromVersion, toVersion: manifest.harnessVersion, skills: [...selected].sort(), skippedByStack }
+  return { actions, dirs, fromVersion, toVersion: manifest.harnessVersion, skills: [...selected].sort(), skippedByStack, destsIgnorados }
 }
 
 // Las required del catalogo entran SIEMPRE, se pidan o no: es la garantia de que

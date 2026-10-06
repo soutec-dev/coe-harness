@@ -11,6 +11,8 @@ import {
   palabras,
   pushDelComando,
   ramaDeDestino,
+  parsePorcelain,
+  mismaUrl,
   cambioDePR,
   urlDelPR,
   prePush,
@@ -47,16 +49,48 @@ test('palabras: quita comillas, redirecciones y asignaciones iniciales', () => {
   assert.deepEqual(palabras('git -C C:\\repos\\app push', 'powershell'), ['git', '-C', 'C:\\repos\\app', 'push'])
 })
 
-test('pushDelComando: pushes de ramas, con y sin refspec, y sus destinos', () => {
-  assert.deepEqual(pushDelComando('git push', CWD), { dir: CWD, cabezas: ['HEAD'], destinos: ['HEAD'], forzado: false, masivo: false })
-  assert.deepEqual(pushDelComando('git push -u origin fix/x', CWD).cabezas, ['fix/x'])
-  assert.deepEqual(pushDelComando('git push -u origin fix/x', CWD).destinos, ['fix/x'])
+test('pushDelComando: pushes de ramas, con y sin refspec, remoto, args y destinos', () => {
+  const simple = pushDelComando('git push', CWD)
+  assert.equal(simple.dir, CWD)
+  assert.deepEqual(simple.cabezas, ['HEAD'])
+  assert.deepEqual(simple.destinos, ['HEAD'])
+  assert.equal(simple.remoto, null)
+  assert.deepEqual(simple.args, [])
+  assert.deepEqual(simple.borrados, [])
+  assert.equal(simple.forzado, false)
+  assert.equal(simple.masivo, false)
+  assert.equal(simple.metacaracteres, false)
+
+  const conRemoto = pushDelComando('git push -u origin fix/x', CWD)
+  assert.deepEqual(conRemoto.cabezas, ['fix/x'])
+  assert.deepEqual(conRemoto.destinos, ['fix/x'])
+  assert.equal(conRemoto.remoto, 'origin')
+  assert.deepEqual(conRemoto.args, ['-u', 'origin', 'fix/x'])
+  assert.equal(pushDelComando('git push https://github.com/otro/repo.git HEAD:x', CWD).remoto, 'https://github.com/otro/repo.git')
+
   assert.deepEqual(pushDelComando('git push origin HEAD', CWD).destinos, ['HEAD'])
   assert.deepEqual(pushDelComando('git push origin HEAD:main', CWD).destinos, ['main'])
   assert.deepEqual(pushDelComando('git push origin dev:refs/heads/main', CWD).destinos, ['refs/heads/main'])
   assert.deepEqual(pushDelComando('git fetch origin && git merge origin/dev && git push', CWD).cabezas, ['HEAD'])
   assert.deepEqual(pushDelComando('git push --dry-run origin HEAD', CWD).cabezas, ['HEAD'])
   assert.deepEqual(pushDelComando('git push origin fix/x 2>&1 | tail -n 3', CWD).cabezas, ['fix/x'])
+})
+
+// Lo que el texto no puede resolver se marca para pedir confirmacion: el shell
+// expande $(), {} y comodines antes de que git vea el comando; `git -c` y las
+// opciones raras cambian el remoto o el destino sin tocar el refspec.
+test('pushDelComando: metacaracteres del shell, git -c y opciones raras quedan marcados', () => {
+  assert.equal(pushDelComando('git push origin HEAD:ma{i,}n', CWD).metacaracteres, true)
+  assert.equal(pushDelComando('git push origin HEAD:$(printf main)', CWD).metacaracteres, true)
+  assert.equal(pushDelComando('git push origin HEAD:`echo main`', CWD).metacaracteres, true)
+  assert.equal(pushDelComando('git push origin fix/x', CWD).metacaracteres, false)
+  assert.deepEqual(pushDelComando('git -c push.default=upstream push', CWD).configs, ['push.default=upstream'])
+  assert.deepEqual(pushDelComando('git -c remote.origin.push=HEAD:refs/heads/main push origin', CWD).configs, ['remote.origin.push=HEAD:refs/heads/main'])
+  assert.deepEqual(pushDelComando('git push origin fix/x', CWD).configs, [])
+  assert.deepEqual(pushDelComando('git push --no-verify origin fix/x', CWD).riesgosas, ['--no-verify'])
+  assert.deepEqual(pushDelComando('git push -o ci.skip origin fix/x', CWD).riesgosas, ['-o'])
+  assert.deepEqual(pushDelComando('git push --receive-pack=/tmp/x origin fix/x', CWD).riesgosas, ['--receive-pack=/tmp/x'])
+  assert.deepEqual(pushDelComando('git push -u origin fix/x', CWD).riesgosas, [])
 })
 
 test('pushDelComando: --force, -f y +refspec se marcan forzados; --force-with-lease no', () => {
@@ -81,16 +115,26 @@ test('pushDelComando: tags, --all y --mirror revisan lo que de verdad suben, y -
   assert.equal(pushDelComando('git push --tags', CWD).masivo, false)
 })
 
-test('pushDelComando: borrados y comandos sin push no llevan check', () => {
-  for (const comando of [
-    'git push origin --delete fix/x',
-    'git push origin :fix/x',
-    'git commit -m "despues hago git push"',
-    'git status',
-    'echo git push',
-  ]) {
+test('pushDelComando: los borrados se reconocen (sin cabezas que escanear) y los comandos sin push no llevan check', () => {
+  const conDelete = pushDelComando('git push origin --delete fix/x', CWD)
+  assert.deepEqual(conDelete.borrados, ['fix/x'])
+  assert.deepEqual(conDelete.cabezas, [])
+  assert.deepEqual(pushDelComando('git push origin :fix/x', CWD).borrados, ['fix/x'])
+  assert.deepEqual(pushDelComando('git push origin :main', CWD).borrados, ['main'])
+  assert.deepEqual(pushDelComando('git push origin -d main', CWD).borrados, ['main'])
+  for (const comando of ['git commit -m "despues hago git push"', 'git status', 'echo git push']) {
     assert.equal(pushDelComando(comando, CWD), null, comando)
   }
+})
+
+test('parsePorcelain y mismaUrl: lo que git resuelve, incluidos los borrados', () => {
+  const salida = 'To https://github.com/o/r.git\n*\trefs/heads/fix/x:refs/heads/fix/x\t[new branch]\n=\trefs/tags/v1:refs/tags/v1\t[up to date]\n-\t:refs/heads/vieja\t[deleted]\nDone\n'
+  assert.deepEqual(parsePorcelain(salida), { url: 'https://github.com/o/r.git', destinos: ['refs/heads/fix/x', 'refs/tags/v1', 'refs/heads/vieja'] })
+  assert.deepEqual(parsePorcelain(''), { url: null, destinos: [] })
+  assert.ok(mismaUrl('https://github.com/o/r.git', 'https://github.com/O/R'))
+  assert.ok(mismaUrl('git@github.com:o/r.git', 'git@github.com:o/r'))
+  assert.ok(!mismaUrl('https://github.com/o/r.git', 'https://github.com/o/otro'))
+  assert.ok(!mismaUrl('', ''))
 })
 
 test('pushDelComando: resuelve la carpeta con -C y con un cd previo', () => {
@@ -100,12 +144,15 @@ test('pushDelComando: resuelve la carpeta con -C y con un cd previo', () => {
   assert.equal(pushDelComando('"C:/Program Files/Git/cmd/git.exe" push', CWD).dir, CWD)
 })
 
-test('ramaDeDestino: HEAD resuelve a la rama actual; los tags y las refs ajenas no son ramas', () => {
+test('ramaDeDestino: HEAD resuelve a la rama actual; heads/x es una rama (DWIM de git); tags y refs ajenas no', () => {
   assert.equal(ramaDeDestino('main'), 'main')
   assert.equal(ramaDeDestino('refs/heads/main'), 'main')
+  assert.equal(ramaDeDestino('heads/main'), 'main')
   assert.equal(ramaDeDestino('HEAD', { ramaActual: 'main' }), 'main')
   assert.equal(ramaDeDestino('HEAD', { ramaActual: null }), null)
   assert.equal(ramaDeDestino('refs/tags/v1'), null)
+  assert.equal(ramaDeDestino('tags/v1'), null)
+  assert.equal(ramaDeDestino('remotes/origin/main'), null)
   assert.equal(ramaDeDestino('v1.2.0'), 'v1.2.0')
 })
 
@@ -135,14 +182,21 @@ function repoFalso() {
 }
 
 // Responde segun el comando: git rev-parse -> la raiz, git symbolic-ref -> la
-// rama actual, gh pr view -> el PR, el script -> lo que diga `grupos`,
+// rama actual, git push --dry-run -> el ensayo (porcelain), git remote get-url
+// -> la URL de origin, gh pr view -> el PR, el script -> lo que diga `grupos`,
 // gh pr comment -> guarda el cuerpo.
-function correrFalso({ raiz, ramaActual = 'fix/algo', grupos = {}, vista = { status: 0 }, comentario = { status: 0 } }) {
+const URL_ORIGEN = 'https://github.com/o/r.git'
+const ensayo = (lineas, url = URL_ORIGEN) => ({ status: 0, stdout: `To ${url}\n${lineas.join('\n')}\nDone\n`, stderr: '' })
+
+function correrFalso({ raiz, ramaActual = 'fix/algo', grupos = {}, vista = { status: 0 }, comentario = { status: 0 }, dryRun }) {
   const llamadas = []
+  const porcelain = dryRun ?? ensayo(['*\trefs/heads/fix/algo:refs/heads/fix/algo\t[new branch]'])
   const correr = (cmd, args, opciones = {}) => {
     llamadas.push({ cmd, args, opciones })
     if (cmd === 'git' && args[0] === 'rev-parse') return { status: 0, stdout: `${raiz}\n`, stderr: '' }
     if (cmd === 'git' && args[0] === 'symbolic-ref') return ramaActual ? { status: 0, stdout: `${ramaActual}\n`, stderr: '' } : { status: 1, stdout: '', stderr: '' }
+    if (cmd === 'git' && args[0] === 'push') return porcelain
+    if (cmd === 'git' && args[0] === 'remote') return { status: 0, stdout: `${URL_ORIGEN}\n`, stderr: '' }
     if (cmd === 'git') return { status: 0, stdout: '', stderr: '' }
     if (cmd === 'gh' && args[1] === 'view') {
       return vista.status === 0
@@ -156,7 +210,68 @@ function correrFalso({ raiz, ramaActual = 'fix/algo', grupos = {}, vista = { sta
   return { correr, llamadas }
 }
 
-const pushSimple = (extra = {}) => ({ cabezas: ['HEAD'], destinos: ['HEAD'], forzado: false, masivo: false, ...extra })
+const pushSimple = (extra = {}) => ({
+  args: [],
+  remoto: null,
+  configs: [],
+  riesgosas: [],
+  metacaracteres: false,
+  cabezas: ['HEAD'],
+  destinos: ['HEAD'],
+  borrados: [],
+  forzado: false,
+  masivo: false,
+  ...extra,
+})
+
+test('prePush: el destino lo decide git: heads/main, el upstream en main y un borrado de main se deniegan', () => {
+  const raiz = repoFalso()
+  const { correr, llamadas } = correrFalso({ raiz })
+  // heads/main es refs/heads/main para git (DWIM): deny estatico, antes de cualquier ensayo.
+  assert.equal(prePush({ push: pushSimple({ destinos: ['heads/main'] }), raiz, correr }).hookSpecificOutput.permissionDecision, 'deny')
+  assert.equal(prePush({ push: pushSimple({ cabezas: [], destinos: [], borrados: ['main'] }), raiz, correr }).hookSpecificOutput.permissionDecision, 'deny')
+  assert.ok(!llamadas.some((l) => l.cmd === 'git' && l.args[0] === 'push'), 'con deny estatico no se ensaya nada')
+  // Borrar otra rama no sube commits: nada que escanear.
+  assert.equal(prePush({ push: pushSimple({ cabezas: [], destinos: [], borrados: ['fix/vieja'] }), raiz, correr }), null)
+
+  // Texto inocente (`git push origin`), pero git resuelve a main por push.default o el upstream: deny por el ensayo.
+  const upstreamEnMain = correrFalso({ raiz, dryRun: ensayo([' \trefs/heads/fix/algo:refs/heads/main\t[ok]']) })
+  const salida = prePush({ push: pushSimple({ remoto: 'origin', args: ['origin'] }), raiz, correr: upstreamEnMain.correr })
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /segun git/)
+  const ensayado = upstreamEnMain.llamadas.find((l) => l.cmd === 'git' && l.args[0] === 'push')
+  assert.deepEqual(ensayado.args.slice(0, 4), ['push', '--dry-run', '--porcelain', '--no-verify'])
+})
+
+test('prePush: lo que el hook no puede resolver pide confirmacion, nunca pasa en silencio', () => {
+  const raiz = repoFalso()
+  const { correr } = correrFalso({ raiz })
+  for (const push of [pushSimple({ metacaracteres: true }), pushSimple({ configs: ['push.default=upstream'] }), pushSimple({ riesgosas: ['--no-verify'] })]) {
+    const salida = prePush({ push, raiz, correr })
+    assert.equal(salida.hookSpecificOutput.permissionDecision, 'ask', JSON.stringify(push))
+    assert.match(salida.hookSpecificOutput.permissionDecisionReason, /no puedo asegurar/)
+  }
+  // git no pudo ensayar el push (sin upstream, sin red): tambien ask, con el motivo.
+  const sinEnsayo = correrFalso({ raiz, dryRun: { status: 128, stdout: '', stderr: 'fatal: The current branch fix/algo has no upstream branch.\n' } })
+  const salida = prePush({ push: pushSimple(), raiz, correr: sinEnsayo.correr })
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /no upstream/)
+})
+
+test('prePush: solo se pushea a origin, por nombre y por URL real', () => {
+  const raiz = repoFalso()
+  const { correr } = correrFalso({ raiz })
+  for (const remoto of ['upstream', 'https://github.com/otro/repo.git', '../otro-repo']) {
+    const salida = prePush({ push: pushSimple({ remoto, args: [remoto, 'fix/algo'], cabezas: ['fix/algo'], destinos: ['fix/algo'] }), raiz, correr })
+    assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny', remoto)
+    assert.match(salida.hookSpecificOutput.permissionDecisionReason, /origin/)
+  }
+  // Sin remoto explicito, el ensayo tiene que ir a la URL de origin (remote.pushDefault, branch.pushRemote...).
+  const otroDestino = correrFalso({ raiz, dryRun: ensayo(['*\trefs/heads/fix/algo:refs/heads/fix/algo\t[new branch]'], 'https://github.com/otro/repo.git') })
+  const salida = prePush({ push: pushSimple(), raiz, correr: otroDestino.correr })
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /otro\/repo/)
+})
 
 test('prePush: un push a main se deniega antes de mirar nada mas, en todas sus formas', () => {
   const raiz = repoFalso()
@@ -224,12 +339,13 @@ test('prePush: check en verde no emite nada (nunca "allow": no salta los ask de 
   assert.equal(prePush({ push: pushSimple(), raiz, correr }), null)
 })
 
-test('prePush: si el script no pudo verificar, deja pasar pero lo avisa', () => {
+test('prePush: si el script no pudo verificar, pide confirmacion con el motivo (nunca deja pasar en silencio)', () => {
   const raiz = repoFalso()
   const { correr } = correrFalso({ raiz, grupos: { secretos: { status: 2, stdout: '[ERROR] secretos: no se pudo verificar: fatal\n' } } })
   const salida = prePush({ push: pushSimple(), raiz, correr })
-  assert.equal(salida.hookSpecificOutput, undefined, 'no deniega')
-  assert.match(salida.systemMessage, /no se pudo validar secretos/)
+  assert.equal(salida.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(salida.hookSpecificOutput.permissionDecisionReason, /no se pudo validar secretos/)
+  assert.equal(salida.systemMessage, undefined)
 })
 
 test('prePush: revisa la rama nombrada en el refspec con el script confiable del proyecto del hook', () => {
@@ -322,6 +438,18 @@ test('procesar: repo sin el script y comandos ajenos -> nada', () => {
   assert.equal(llamadas.length, 0, 'un comando ajeno no dispara ni git')
 })
 
+test('procesar: PostToolUse ignora un PR que no es de origin (no corre checks ni comenta)', () => {
+  const raiz = repoFalso()
+  const { correr, llamadas } = correrFalso({ raiz })
+  const salida = procesar(
+    { hook_event_name: 'PostToolUse', tool_name: 'Bash', cwd: raiz, tool_input: { command: 'gh pr create --fill' }, tool_response: { stdout: 'https://github.com/otro/repo/pull/5\n' } },
+    correr,
+  )
+  assert.match(salida.systemMessage, /no es un PR de este repo/)
+  assert.ok(!llamadas.some((l) => l.cmd === 'gh'), 'ni consulta ni comenta un PR ajeno')
+  assert.ok(!llamadas.some((l) => l.cmd === process.execPath), 'ni corre los checks')
+})
+
 test('procesar: PostToolUse toma la URL de la salida de gh pr create', () => {
   const raiz = repoFalso()
   const { correr, llamadas } = correrFalso({ raiz })
@@ -348,8 +476,12 @@ function git(dir, ...args) {
   })
 }
 
+// Un repo con un origin real (bare, local): el hook ensaya cada push con
+// `git push --dry-run`, asi que necesita un remoto que conteste.
 function repoReal() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coe-harness hook pr '))
+  const remoto = fs.mkdtempSync(path.join(os.tmpdir(), 'coe-harness hook remoto '))
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'dev', remoto])
   git(dir, 'init', '-q', '-b', 'dev')
   fs.mkdirSync(path.join(dir, 'scripts'))
   fs.copyFileSync(SCRIPT, path.join(dir, 'scripts', 'check-pr-rules.mjs'))
@@ -357,7 +489,8 @@ function repoReal() {
   fs.writeFileSync(path.join(dir, 'src', 'modulo', 'a.js'), 'export {}\n')
   git(dir, 'add', '-A')
   git(dir, 'commit', '-q', '-m', 'chore: raiz')
-  git(dir, 'update-ref', 'refs/remotes/origin/dev', 'HEAD')
+  git(dir, 'remote', 'add', 'origin', remoto)
+  git(dir, 'push', '-q', '-u', 'origin', 'dev')
   git(dir, 'switch', '-q', '-c', 'fix/algo')
   return dir
 }
@@ -416,11 +549,39 @@ test('hook real: push limpio -> stdout vacio; push a main, --force y --all -> de
   assert.equal(push(dir), '', 'check en verde: sin salida')
   assert.equal(push(dir, 'git push origin fix/algo:dev'), '', 'un push a dev se permite')
 
-  for (const comando of ['git push origin HEAD:main', 'git push origin fix/algo:master', 'git push --force origin fix/algo', 'git push -f', 'git push --all origin']) {
+  for (const comando of [
+    'git push origin HEAD:main',
+    'git push origin HEAD:heads/main',
+    'git push origin +HEAD:heads/main',
+    'git push origin fix/algo:master',
+    'git push origin :main',
+    'git push origin --delete main',
+    'git push --force origin fix/algo',
+    'git push -f',
+    'git push --all origin',
+    'git push upstream fix/algo',
+    'git push https://github.com/otro/repo.git fix/algo',
+  ]) {
     const salida = JSON.parse(push(dir, comando))
     assert.equal(salida.hookSpecificOutput.permissionDecision, 'deny', comando)
   }
   assert.match(JSON.parse(push(dir, 'git push origin HEAD:main')).hookSpecificOutput.permissionDecisionReason, /`main`/)
+
+  // Lo que el texto no resuelve pide confirmacion: expansiones del shell, git -c, --no-verify.
+  for (const comando of ['git push origin HEAD:ma{i,}n', 'git push origin HEAD:$(printf main)', 'git -c push.default=upstream push origin', 'git push --no-verify origin fix/algo']) {
+    const salida = JSON.parse(push(dir, comando))
+    assert.equal(salida.hookSpecificOutput.permissionDecision, 'ask', comando)
+  }
+
+  // Texto inocente, pero la configuracion del repo manda el push a main: lo descubre el ensayo de git.
+  git(dir, 'push', '-q', 'origin', 'dev:main')
+  git(dir, 'branch', '-q', '--set-upstream-to=origin/main', 'fix/algo')
+  git(dir, 'config', 'push.default', 'upstream')
+  const porUpstream = JSON.parse(push(dir, 'git push origin'))
+  assert.equal(porUpstream.hookSpecificOutput.permissionDecision, 'deny')
+  assert.match(porUpstream.hookSpecificOutput.permissionDecisionReason, /segun git/)
+  git(dir, 'config', '--unset', 'push.default')
+  git(dir, 'branch', '-q', '--unset-upstream', 'fix/algo')
 
   // Parado en main, un `git push` a secas tambien va a main.
   git(dir, 'switch', '-q', 'dev')

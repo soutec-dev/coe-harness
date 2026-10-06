@@ -35,6 +35,13 @@ Estas no se negocian, ni siquiera en un hotfix.
   siempre con confirmación explícita del usuario. Con la política por defecto
   (merge, no rebase) no hace falta nunca.
 - **Nunca `git push --all` ni `--mirror`**: suben `main` y ramas que nadie revisó.
+- **Solo se pushea a `origin`.** El hook deniega cualquier push a otro remoto o
+  a una URL; si de verdad hace falta, lo hace el usuario a mano.
+- **Si el hook pide confirmación, no confirmes a ciegas.** Lo hace cuando no
+  puede resolver con certeza a dónde va el push (caracteres que expande el
+  shell, `git -c`, `--no-verify`, opciones raras, o git no pudo ensayarlo porque
+  no hay upstream o red): reescribe el comando en su forma simple,
+  `git push -u origin <rama>`, y vuelve a intentar.
 - **Nunca commitear secretos**: `.env`, `*.pem`, `*.key`, `*.pfx`, `credentials.json`,
   `secrets.json`, tokens, contraseñas, llaves privadas, connection strings.
 - **Nunca subir datos de la organización sin autorización previa**: datos
@@ -215,13 +222,17 @@ reglas:
 
 - **En la sesión, con el hook `reglas-pr` de Claude Code** (`.claude/hooks/reglas-pr.mjs`,
   no es un git hook):
-  - **Antes de cada `git push`**: deniega el push si va a `main`/`master`, si es
-    `--force`/`-f`/`+refspec` o `--all`/`--mirror`, y corre el grupo `secretos`
-    (archivos de credenciales, llaves y tokens en el contenido, datos personales o
-    de nómina) sobre cada commit que el push subiría. Si falla, el push queda
-    denegado con el motivo: sigue sus instrucciones (sacar el archivo o el
-    contenido de los commits sin pushear; si ya se había pusheado, avisar al
-    usuario para rotar la credencial o tratar la filtración).
+  - **Antes de cada `git push`**: deniega el push si va a `main`/`master` (o los
+    borra), si es `--force`/`-f`/`+refspec` o `--all`/`--mirror`, si el remoto no
+    es `origin`, y corre el grupo `secretos` (archivos de credenciales, llaves y
+    tokens en el contenido, datos personales o de nómina) sobre cada commit que
+    el push subiría, merges incluidos. Después le pide a git que **ensaye** el
+    push (`--dry-run`) y deniega si el destino real es `main` aunque el texto no
+    lo diga (upstream, `push.default`). Si falla el check, el push queda denegado
+    con el motivo: sigue sus instrucciones (sacar el archivo o el contenido de
+    los commits sin pushear; si ya se había pusheado, avisar al usuario para
+    rotar la credencial o tratar la filtración). Si no pudo verificar, pide
+    confirmación: no la des por él.
   - **Al crear el PR o editar su body o su base**: los tres grupos contra el PR
     (`rama-commits` es informativo; `secretos` y `pr-metadata` bloquean). El
     resultado se publica como comentario en el PR — la evidencia para el revisor —

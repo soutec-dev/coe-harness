@@ -11,6 +11,19 @@ export function backupDirName(now = new Date()) {
   return `backup-${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}T${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`
 }
 
+// Ninguna ruta del plan puede salir del repo: ni para escribir, ni para
+// borrar, ni para respaldar. computePlan ya descarta los dest con "..", pero
+// esto es la ultima linea, independiente de quien armo el plan.
+function dentroDelRepo(cwd, abs) {
+  const rel = path.relative(path.resolve(cwd), path.resolve(abs))
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
+function rutaSegura(cwd, abs, accion) {
+  if (!dentroDelRepo(cwd, abs)) throw new Error(`bloqueado: ${accion} fuera del repo (${abs})`)
+  return abs
+}
+
 export function apply({ plan, cwd, manifest, vars, detected, lock, prune = false, pruneEdited = false, backup = true, now }) {
   const written = []
   const backedUp = []
@@ -34,7 +47,7 @@ export function apply({ plan, cwd, manifest, vars, detected, lock, prune = false
     if (action.verdict === OBSOLETE) {
       if (!prune) continue
       if (!action.autoPrune && !pruneEdited) continue
-      const abs = path.join(cwd, ...action.dest.split('/'))
+      const abs = rutaSegura(cwd, path.join(cwd, ...action.dest.split('/')), 'intento de borrado')
       const saved = saveBackup(cwd, backupRoot, action.dest)
       if (backup && saved) backedUp.push(saved)
       fs.rmSync(abs, { force: true })
@@ -61,7 +74,7 @@ export function apply({ plan, cwd, manifest, vars, detected, lock, prune = false
       if (saved) backedUp.push(saved)
     }
 
-    const target = path.join(cwd, ...action.writePath.split('/'))
+    const target = rutaSegura(cwd, path.join(cwd, ...action.writePath.split('/')), 'intento de escritura')
     if (action.binary) writeFileBytes(target, action.content)
     else writeFileLF(target, action.content)
     written.push({ dest: action.writePath, verdict: action.verdict })
@@ -76,10 +89,10 @@ export function apply({ plan, cwd, manifest, vars, detected, lock, prune = false
 // El backup copia bytes tal cual: sin normalizacion LF, para no corromper
 // binarios y para que el respaldo sea una copia fiel, no una version "arreglada".
 function saveBackup(cwd, backupRoot, dest) {
-  const src = path.join(cwd, ...dest.split('/'))
+  const src = rutaSegura(cwd, path.join(cwd, ...dest.split('/')), 'intento de respaldo')
   const content = readBytesIfExists(src)
   if (content == null) return null
-  writeFileBytes(path.join(backupRoot, ...dest.split('/')), content)
+  writeFileBytes(rutaSegura(cwd, path.join(backupRoot, ...dest.split('/')), 'intento de respaldo'), content)
   return dest
 }
 

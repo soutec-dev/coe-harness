@@ -8,9 +8,12 @@
 # revisión del coordinador (CODEOWNERS).
 #
 # Lo que figura aquí deja de hacer fallar el check `sin-datos-sensibles` de
-# scripts/check-pr-rules.mjs (hook reglas-pr y CI). El check de credenciales
-# (tokens, llaves, contraseñas) sigue aplicando igual: una autorización de datos
-# nunca autoriza un secreto.
+# scripts/check-pr-rules.mjs (hook reglas-pr y CI), PERO SOLO CUANDO YA ESTÁ EN
+# `dev`: el check lee este archivo de `origin/dev`, no de tu working tree, para
+# que un mismo commit no pueda traer el dato y su propia exención. Primero se
+# mergea la línea (un PR chico), después entran los datos. El check de
+# credenciales (tokens, llaves, contraseñas) sigue aplicando igual: una
+# autorización de datos nunca autoriza un secreto.
 #
 # Ejemplos:
 # tests/fixtures/empleados-sinteticos.json   # datos sintéticos (faker), sin personas reales — @coordinador 2026-01-15

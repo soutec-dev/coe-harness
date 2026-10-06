@@ -1,0 +1,5 @@
+# Fin de linea LF en el working tree de todos los sistemas: el motor del harness
+# escribe LF y los tests comparan las copias dogfood byte a byte con sus
+# plantillas. Sin esto, core.autocrlf=true en Windows deja CRLF al hacer checkout.
+* text=auto eol=lf
+*.png binary

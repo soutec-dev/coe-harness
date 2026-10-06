@@ -95,13 +95,16 @@ const PATRONES_SECRETO = [
   { id: 'google-api-key', re: /\bAIza[0-9A-Za-z_-]{35}\b/ },
   { id: 'stripe-key', re: /\b[sr]k_(?:live|test)_[0-9a-zA-Z]{20,}\b/ },
   { id: 'openai-anthropic-key', re: /\b(sk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,})\b/, valor: 1 },
-  { id: 'azure-storage-key', re: /AccountKey=([A-Za-z0-9+/=]{80,})/, valor: 1 },
-  { id: 'sas-token', re: /[?&]sig=[A-Za-z0-9%+/=]{40,}/ },
-  { id: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/ },
-  { id: 'url-con-credenciales', re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@"'<>]+:([^\s/@"'<>]{4,})@[^\s"'<>]+/i, valor: 1 },
+  { id: 'azure-storage-key', re: /AccountKey=([A-Za-z0-9+/=]{80,})/, valor: 1, requiere: 'AccountKey=' },
+  { id: 'sas-token', re: /[?&]sig=[A-Za-z0-9%+/=]{40,}/, requiere: 'sig=' },
+  { id: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/, requiere: 'eyJ' },
+  // `requiere`: un substring barato que tiene que estar en la linea antes de
+  // correr la regex. Las que empiezan con una clase repetida ([a-z]+ hasta un
+  // literal) son cuadraticas en lineas largas sin ese literal.
+  { id: 'url-con-credenciales', re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@"'<>]+:([^\s/@"'<>]{4,})@[^\s"'<>]+/i, valor: 1, requiere: '://' },
   { id: 'connection-string', re: /\b(?:Password|Pwd)\s*=\s*([^;\s"'<>]{4,})/i, valor: 1, contexto: /\b(?:Server|Data Source|Host|Initial Catalog|Database|User(?: ?Id)?|Uid)\s*=/i },
-  { id: 'npm-token', re: /_authToken\s*=\s*["']?([A-Za-z0-9._-]{16,})/, valor: 1 },
-  { id: 'bearer-token', re: /\bBearer\s+([A-Za-z0-9._\-+/=]{20,})/, valor: 1 },
+  { id: 'npm-token', re: /_authToken\s*=\s*["']?([A-Za-z0-9._-]{16,})/, valor: 1, requiere: '_authToken' },
+  { id: 'bearer-token', re: /\bBearer\s+([A-Za-z0-9._\-+/=]{20,})/, valor: 1, requiere: 'Bearer' },
   {
     id: 'asignacion-de-secreto',
     re: /\b(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|secret[_-]?key)\b["']?\s*(?:[:=]|=>)\s*["']?([^\s"',;]{8,})["']?/i,
@@ -134,7 +137,10 @@ export function pareceSecreto(valor) {
   const v = String(valor).trim().replace(/^["'`]+|["'`,;)]+$/g, '')
   if (v.length < 8) return false
   if (PLACEHOLDER.test(v)) return false
-  if (/[\s<>{}()$`]/.test(v)) return false
+  // Expresiones y plantillas (${X}, $(X), {{X}}, <X>, %X%) no son secretos; un
+  // "$" en medio de una contrasena fuerte si puede serlo.
+  if (/[\s<>()`]/.test(v)) return false
+  if (/^[$%{]/.test(v) || /\$\{|\$\(|\{\{/.test(v)) return false
   if (REFERENCIA_A_ENTORNO.test(v)) return false
   if (PALABRA_DE_EJEMPLO.test(v)) return false
   const tieneLetra = /[A-Za-z]/.test(v)
@@ -186,6 +192,10 @@ const TARJETAS_DE_PRUEBA = new Set([
 const MAX_EMAILS = 8
 // Archivos generados o compactados donde las heuristicas solo hacen ruido.
 const SIN_ESCANEO_DE_CONTENIDO = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Cargo\.lock|poetry\.lock|Gemfile\.lock|go\.sum)$|\.(min\.js|min\.css|map|svg|lock)$/
+// Una linea mas larga que esto (minificados, blobs embebidos) no se escanea:
+// las regex de correos y URLs son cuadraticas en lineas asi y vencerian el
+// timeout del hook, que entonces no podria verificar nada. Se cuenta y se avisa.
+const MAX_LINEA = 20_000
 
 export function luhn(digitos) {
   let suma = 0
@@ -255,11 +265,28 @@ export function leeAutorizados(texto) {
     .map(globARegex)
 }
 
+// Las autorizaciones valen cuando ya estan en `dev` (la rama de integracion,
+// revisada): asi un commit no puede traer el dato y su propia exencion. Si
+// origin/dev todavia no existe (repo recien creado), vale el archivo local.
 function autorizadosDelRepo() {
   try {
-    return leeAutorizados(readFileSync('.datos-autorizados', 'utf8'))
+    return leeAutorizados(sh(['git', 'show', 'origin/dev:.datos-autorizados']))
   } catch {
-    return []
+    if (refExiste('origin/dev')) return []
+    try {
+      return leeAutorizados(readFileSync('.datos-autorizados', 'utf8'))
+    } catch {
+      return []
+    }
+  }
+}
+
+function refExiste(ref) {
+  try {
+    sh(['git', 'rev-parse', '--verify', '--quiet', ref])
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -313,14 +340,45 @@ export function archivosDeDiff(texto) {
   return archivos.filter((a) => a.ruta != null)
 }
 
+// Lineas que superan MAX_LINEA en archivos escaneables: no se revisan, se avisan.
+export function lineasLargasDeDiff(texto) {
+  let n = 0
+  for (const archivo of archivosDeDiff(texto)) {
+    if (archivo.binario || SIN_ESCANEO_DE_CONTENIDO.test(archivo.ruta)) continue
+    for (const { texto: l } of archivo.lineas) if (l.length > MAX_LINEA) n++
+  }
+  return n
+}
+
+// Excepciones que llegan en el mismo diff: marcadores coe:no-secreto nuevos y
+// lineas nuevas en .datos-autorizados. No fallan (las decide el usuario), pero
+// se listan para que el revisor las vea.
+export function excepcionesNuevas(texto) {
+  const marcadores = []
+  let autorizaciones = 0
+  for (const archivo of archivosDeDiff(texto)) {
+    if (archivo.binario) continue
+    for (const { n, texto: l } of archivo.lineas) {
+      if (archivo.ruta === '.datos-autorizados') {
+        if (l.trim() && !l.trim().startsWith('#')) autorizaciones++
+      } else if (l.includes(MARCADOR_NO_SECRETO)) {
+        marcadores.push({ ruta: archivo.ruta, n })
+      }
+    }
+  }
+  return { marcadores, autorizaciones }
+}
+
 // Secretos en las lineas agregadas de un diff. Devuelve { ruta, n, regla }.
 export function escaneaSecretos(texto) {
   const hallazgos = []
   for (const archivo of archivosDeDiff(texto)) {
     if (archivo.binario || SIN_ESCANEO_DE_CONTENIDO.test(archivo.ruta)) continue
     for (const { n, texto: l } of archivo.lineas) {
+      if (l.length > MAX_LINEA) continue
       if (l.includes(MARCADOR_NO_SECRETO)) continue
       for (const patron of PATRONES_SECRETO) {
+        if (patron.requiere && !l.includes(patron.requiere)) continue
         const m = l.match(patron.re)
         if (!m) continue
         if (patron.contexto && !patron.contexto.test(l)) continue
@@ -346,10 +404,12 @@ export function escaneaDatosSensibles(texto, autorizados = []) {
     let tarjetas = 0
     const emails = new Set()
     for (const { texto: l } of archivo.lineas) {
+      if (l.length > MAX_LINEA) continue
       for (const p of PATRONES_DOCUMENTO) documentos += (l.match(p.re) ?? []).length
       palabras += (l.match(PALABRAS_DE_NOMINA) ?? []).length
       for (const t of l.match(TARJETA) ?? []) if (pareceTarjeta(t)) tarjetas++
-      for (const e of l.match(EMAIL) ?? []) if (!EMAIL_IGNORADO.test(e)) emails.add(e.toLowerCase())
+      // Sin "@" no hay correo, y la regex de correos es cuadratica en lineas largas.
+      if (l.includes('@')) for (const e of l.match(EMAIL) ?? []) if (!EMAIL_IGNORADO.test(e)) emails.add(e.toLowerCase())
     }
     const motivos = []
     if (tarjetas) motivos.push(`${tarjetas} numero(s) de tarjeta`)
@@ -469,13 +529,26 @@ function diffDelPR(baseRef, cabeza) {
 
 // Commit por commit, todo lo que un push subiria: un archivo agregado en un
 // commit y borrado en el siguiente no aparece en el diff de arboles, pero el
-// push sube igual el commit que lo contiene.
+// push sube igual el commit que lo contiene. Los merge commits tambien
+// cuentan: sin --remerge-diff, `git log -p` no muestra lo que un merge agrego
+// a mano por encima del merge automatico ("evil merge"). git < 2.36 no lo
+// tiene: se cae a -m --first-parent (mas ruidoso, no menos seguro).
+function logSinPushear(cabeza, extra) {
+  const base = ['log', cabeza, '--not', '--remotes=origin', '--format=', ...extra]
+  try {
+    return diff([...base, '--remerge-diff'])
+  } catch (e) {
+    if (!/remerge-diff/.test(String(e?.stderr ?? ''))) throw e
+    return diff([...base, '-m', '--first-parent'])
+  }
+}
+
 function archivosSinPushear(cabeza) {
-  return rutas(['log', cabeza, '--not', '--remotes=origin', '--diff-filter=A', '--name-only', '-z', '--format='])
+  return rutasDeSalidaZ(logSinPushear(cabeza, ['--diff-filter=A', '--name-only', '-z']))
 }
 
 function diffSinPushear(cabeza) {
-  return diff(['log', cabeza, '--not', '--remotes=origin', '--format=', '--no-color', '--unified=0', '--diff-filter=AMCR', '-p'])
+  return logSinPushear(cabeza, ['--no-color', '--unified=0', '--diff-filter=AMCR', '-p'])
 }
 
 function tagsRemotos() {
@@ -580,16 +653,33 @@ const MAX_DETALLE = 10
 
 export function evaluaContenidoSecreto(textoDiff, donde = 'agregado') {
   const hallazgos = escaneaSecretos(textoDiff)
+  const largas = lineasLargasDeDiff(textoDiff)
+  const nota = largas ? ` (${largas} linea(s) de mas de ${MAX_LINEA} caracteres sin escanear)` : ''
   if (hallazgos.length === 0) {
-    return { regla: 'sin-secretos-en-contenido', cumple: true, detalle: `sin llaves, tokens ni contrasenas en el contenido ${donde}` }
+    return { regla: 'sin-secretos-en-contenido', cumple: true, detalle: `sin llaves, tokens ni contrasenas en el contenido ${donde}${nota}` }
   }
   const lista = hallazgos.slice(0, MAX_DETALLE).map((h) => `${h.ruta}:${h.n} (${h.regla})`)
   const resto = hallazgos.length > MAX_DETALLE ? ` y ${hallazgos.length - MAX_DETALLE} mas` : ''
   return {
     regla: 'sin-secretos-en-contenido',
     cumple: false,
-    detalle: `posibles credenciales en el contenido ${donde}: ${lista.join(', ')}${resto} -- si es un falso positivo, el usuario marca la linea con ${MARCADOR_NO_SECRETO}`,
+    detalle: `posibles credenciales en el contenido ${donde}: ${lista.join(', ')}${resto}${nota} -- si es un falso positivo, el usuario marca la linea con ${MARCADOR_NO_SECRETO}`,
   }
+}
+
+// Informativa: las excepciones las decide el usuario, pero el revisor tiene que
+// verlas. Sale como skip (no OK) cuando hay alguna, para que llegue al agente.
+export function evaluaExcepcionesNuevas(textoDiff, donde = 'agregado') {
+  const { marcadores, autorizaciones } = excepcionesNuevas(textoDiff)
+  if (!marcadores.length && !autorizaciones) {
+    return { regla: 'excepciones-nuevas', cumple: true, detalle: `sin marcadores ${MARCADOR_NO_SECRETO} ni autorizaciones nuevas ${donde}` }
+  }
+  const partes = []
+  if (marcadores.length) {
+    partes.push(`${marcadores.length} marcador(es) ${MARCADOR_NO_SECRETO} nuevo(s): ${marcadores.slice(0, MAX_DETALLE).map((m) => `${m.ruta}:${m.n}`).join(', ')}`)
+  }
+  if (autorizaciones) partes.push(`${autorizaciones} linea(s) nueva(s) en .datos-autorizados (valen cuando esten en dev)`)
+  return { regla: 'excepciones-nuevas', cumple: null, detalle: `revisar a mano, las excepciones las decide el usuario y no el agente: ${partes.join('; ')}` }
 }
 
 export function evaluaDatosSensibles({ archivos = [], textoDiff = '', autorizados = [] }, donde = 'agregado') {
@@ -846,14 +936,16 @@ function evaluar(values) {
       resultados.push(evaluaSecretos(archivos, 'en commits sin pushear'))
       resultados.push(evaluaContenidoSecreto(textoDiff, 'en commits sin pushear'))
       resultados.push(evaluaDatosSensibles({ archivos, textoDiff, autorizados }, 'en commits sin pushear'))
+      resultados.push(evaluaExcepcionesNuevas(textoDiff, 'en commits sin pushear'))
     } else if (cabeza) {
       const archivos = archivosAgregados(baseLocal, cabeza)
       const textoDiff = diffDelPR(baseLocal, cabeza)
       resultados.push(evaluaSecretos(archivos))
       resultados.push(evaluaContenidoSecreto(textoDiff))
       resultados.push(evaluaDatosSensibles({ archivos, textoDiff, autorizados }))
+      resultados.push(evaluaExcepcionesNuevas(textoDiff))
     } else {
-      resultados.push(sinCabeza('sin-secretos'), sinCabeza('sin-secretos-en-contenido'), sinCabeza('sin-datos-sensibles'))
+      resultados.push(sinCabeza('sin-secretos'), sinCabeza('sin-secretos-en-contenido'), sinCabeza('sin-datos-sensibles'), sinCabeza('excepciones-nuevas'))
     }
   }
   if (values.grupo === 'pr-metadata') {

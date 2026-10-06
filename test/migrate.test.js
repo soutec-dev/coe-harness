@@ -1,10 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { main } from '../src/cli.js'
 import { mkRepo, read, write, has, snapshot, replan, verdicts } from './helpers.js'
 import { OBSOLETE, NOOP, computePlan } from '../src/core/plan.js'
+import { apply } from '../src/core/apply.js'
 import { resolveDetected } from '../src/core/detect.js'
 import { hashContent } from '../src/core/hash.js'
 
@@ -144,4 +146,44 @@ test('upgrade --prune: borra el obsoleto intacto sin preguntar (con backup) y re
   const despues = JSON.parse(read(dir, '.claude/harness.json'))
   assert.equal(despues.files['viejo/intacto.md'], undefined)
   assert.ok(despues.files['viejo/editado.md'])
+})
+
+// El lockfile esta commiteado: cualquier PR puede tocarlo. Un dest con ".." o
+// bajo .git/ con el hash correcto convertia el proximo `upgrade --prune` en un
+// borrado fuera del repo (y una copia del archivo dentro de .claude/).
+test('un dest fuera del repo en el lockfile se ignora: no se borra, no se respalda, y el plan lo reporta', async () => {
+  const dir = mkRepo({ 'README.md': '' })
+  await main(['init', ...YES], dir)
+
+  const fuera = fs.mkdtempSync(path.join(os.tmpdir(), 'coe-harness fuera '))
+  const victima = path.join(fuera, 'victima.txt')
+  fs.writeFileSync(victima, 'contenido predecible\n')
+  const relativa = path.relative(dir, victima).split(path.sep).join('/')
+  assert.ok(relativa.startsWith('../'))
+  write(dir, '.git/HEAD', 'ref: refs/heads/dev\n')
+
+  const lock = JSON.parse(read(dir, '.claude/harness.json'))
+  lock.files[relativa] = { policy: 'managed', hash: hashContent('contenido predecible\n') }
+  lock.files['.git/HEAD'] = { policy: 'managed', hash: hashContent('ref: refs/heads/dev\n') }
+  write(dir, '.claude/harness.json', JSON.stringify(lock, null, 2))
+
+  const plan = replan(dir)
+  assert.deepEqual([...plan.destsIgnorados].sort(), [relativa, '.git/HEAD'].sort())
+  assert.ok(!plan.actions.some((a) => a.dest.startsWith('..') || a.dest.startsWith('.git/')), 'un dest inseguro llego al plan')
+
+  assert.equal(await main(['upgrade', ...YES, '--prune'], dir), 0)
+  assert.ok(fs.existsSync(victima), 'se borro un archivo fuera del repo')
+  assert.ok(has(dir, '.git/HEAD'))
+  assert.ok(!fs.existsSync(path.join(dir, '.claude', path.basename(fuera))), 'se copio el archivo externo dentro del repo')
+  fs.rmSync(fuera, { recursive: true, force: true })
+})
+
+test('apply: una ruta fuera del repo se bloquea aunque llegue dentro del plan', () => {
+  const dir = mkRepo({})
+  const detected = { stacks: [], packageManager: null, isEmpty: true }
+  const borrado = { actions: [{ dest: '../afuera.txt', policy: 'managed', verdict: OBSOLETE, autoPrune: true, reasons: [] }], dirs: [] }
+  assert.throws(() => apply({ plan: borrado, cwd: dir, manifest: { harnessVersion: '1.0.0' }, vars: {}, detected, lock: null, prune: true }), /fuera del repo/)
+  const escritura = { actions: [{ dest: '../afuera.txt', writePath: '../afuera.txt', policy: 'managed', verdict: 'create', content: 'x', reasons: [] }], dirs: [] }
+  assert.throws(() => apply({ plan: escritura, cwd: dir, manifest: { harnessVersion: '1.0.0' }, vars: {}, detected, lock: null }), /fuera del repo/)
+  assert.ok(!fs.existsSync(path.join(dir, '..', 'afuera.txt')))
 })

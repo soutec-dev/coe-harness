@@ -77,6 +77,14 @@ No hace falta que el usuario pida cada paso por separado.
    Si no hubo nada relevante que avisar más allá de "actualizado a la última
    versión", con esa línea alcanza.
 
+## Fijar la versión
+
+`#v1` es el tag móvil de la serie: recibe parches y minors sin que nadie haga
+nada, y nunca un breaking. Es código que se ejecuta en la máquina al actualizar,
+así que un proyecto que exija fijar versiones (auditoría, entornos regulados)
+usa `#vX.Y.Z` en los tres comandos de arriba y lo sube a mano cuando decida; el
+historial de versiones está en el CHANGELOG del harness.
+
 ## Único punto donde SÍ hay que parar
 
 - Un obsoleto que el usuario editó no se borra sin que él lo apruebe. Repórtalo

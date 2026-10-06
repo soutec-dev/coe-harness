@@ -2,7 +2,7 @@
   "harness": "coe-harness",
   "harnessVersion": "1.0.0",
   "cliVersion": "1.0.0",
-  "installedAt": "2026-10-06T14:32:16.531Z",
+  "installedAt": "2026-10-06T15:31:18.334Z",
   "greenfield": false,
   "skills": [
     "adr-new",
@@ -37,11 +37,11 @@
     },
     ".claude/settings.json": {
       "policy": "merge-json",
-      "hash": "ad2d7043f1003dca"
+      "hash": "837903b13c84441f"
     },
     ".claude/hooks/reglas-pr.mjs": {
       "policy": "managed",
-      "hash": "45e214d261c746e1"
+      "hash": "ae292279a9f472dc"
     },
     ".datos-autorizados": {
       "policy": "user-owned",
@@ -57,11 +57,11 @@
     },
     "scripts/check-pr-rules.mjs": {
       "policy": "managed",
-      "hash": "652fbcef5c7e2420"
+      "hash": "4be06e1dc4566a50"
     },
     ".github/workflows/reglas-pr.yml": {
       "policy": "managed",
-      "hash": "76a47af3a557b6e8"
+      "hash": "157bd22a8d02491c"
     },
     "scripts/tag-release.mjs": {
       "policy": "managed",
@@ -69,15 +69,15 @@
     },
     ".github/workflows/tag-release.yml": {
       "policy": "managed",
-      "hash": "530db8b51cfd9dad"
+      "hash": "ca32f7cb3f386229"
     },
     ".claude/skills/coe-github/SKILL.md": {
       "policy": "managed",
-      "hash": "1883d482373ae525"
+      "hash": "051bbbba2b7e46c9"
     },
     ".claude/skills/datos-sensibles/SKILL.md": {
       "policy": "managed",
-      "hash": "baf5843077d7c72d"
+      "hash": "7c1bb141dfc3ec64"
     },
     ".claude/skills/security-audit/SKILL.md": {
       "policy": "managed",
@@ -105,7 +105,7 @@
     },
     ".claude/skills/harness-upgrade/SKILL.md": {
       "policy": "managed",
-      "hash": "59124c774174e1bc"
+      "hash": "68f45f3940bc34e6"
     }
   },
   "blocks": {

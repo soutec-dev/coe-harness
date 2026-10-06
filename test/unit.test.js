@@ -6,7 +6,8 @@ import { buildBlock, upsertBlock, extractBlock, BEGIN } from '../src/core/block.
 import { seedMerge } from '../src/core/jsonmerge.js'
 import { lt } from '../src/core/lockfile.js'
 import { loadManifest, readTemplate } from '../src/core/manifest.js'
-import { cuerpoProteccion, motivoDelFallo } from '../src/core/github-protect.js'
+import { cuerpoProteccion, motivoDelFallo, fusionarProteccion, proteccionDev } from '../src/core/github-protect.js'
+import { destSeguro } from '../src/core/plan.js'
 
 test('hash: CRLF y LF dan el mismo hash', () => {
   assert.equal(hashContent('a\r\nb\r\n'), hashContent('a\nb\n'))
@@ -116,6 +117,48 @@ test('github-protect: el cuerpo de la proteccion exige PR, el check reglas-pr y 
   assert.deepEqual(cuerpo.required_status_checks.checks, [{ context: 'reglas-pr' }])
   assert.equal(cuerpo.required_status_checks.strict, true)
   assert.ok(cuerpo.required_pull_request_reviews)
+})
+
+// PUT reemplaza la proteccion entera: lo que el equipo endurecio a mano
+// (aprobaciones, code owners, checks extra, restricciones) tiene que sobrevivir
+// a cada upgrade; lo que el harness exige se impone aunque estuviera relajado.
+test('fusionarProteccion: sin proteccion previa devuelve la base; con una mas estricta nunca la rebaja', () => {
+  assert.deepEqual(fusionarProteccion(null), JSON.parse(cuerpoProteccion()))
+  const existente = {
+    required_status_checks: { strict: false, contexts: ['ci'], checks: [{ context: 'ci', app_id: 15368 }] },
+    enforce_admins: { enabled: false },
+    required_pull_request_reviews: {
+      required_approving_review_count: 2,
+      require_code_owner_reviews: true,
+      dismiss_stale_reviews: true,
+      require_last_push_approval: false,
+      dismissal_restrictions: { users: [{ login: 'coord' }], teams: [] },
+    },
+    required_conversation_resolution: { enabled: true },
+    required_linear_history: { enabled: false },
+    restrictions: { users: [{ login: 'coord' }], teams: [{ slug: 'core' }], apps: [] },
+    allow_force_pushes: { enabled: true },
+    allow_deletions: { enabled: true },
+  }
+  const f = fusionarProteccion(existente)
+  assert.deepEqual(f.required_status_checks, { strict: true, checks: [{ context: 'ci' }, { context: 'reglas-pr' }] })
+  assert.equal(f.required_pull_request_reviews.required_approving_review_count, 2)
+  assert.equal(f.required_pull_request_reviews.require_code_owner_reviews, true)
+  assert.equal(f.required_pull_request_reviews.dismiss_stale_reviews, true)
+  assert.deepEqual(f.required_pull_request_reviews.dismissal_restrictions, { users: ['coord'], teams: [] })
+  assert.equal(f.required_conversation_resolution, true)
+  assert.equal(f.required_linear_history, undefined)
+  assert.deepEqual(f.restrictions, { users: ['coord'], teams: ['core'], apps: [] })
+  assert.equal(f.enforce_admins, true)
+  assert.equal(f.allow_force_pushes, false)
+  assert.equal(f.allow_deletions, false)
+  // dev: solo lo irreversible, sin PR obligatorio (el bump de version se commitea ahi).
+  assert.deepEqual(proteccionDev(), { required_status_checks: null, enforce_admins: false, required_pull_request_reviews: null, restrictions: null, allow_force_pushes: false, allow_deletions: false })
+})
+
+test('destSeguro: solo rutas relativas POSIX dentro del repo', () => {
+  for (const ok of ['CLAUDE.md', '.claude/settings.json', 'docs/decisions/x.md', 'a.b/c']) assert.equal(destSeguro(ok), true, ok)
+  for (const mal of ['../fuera.txt', 'docs/../../x', '/etc/passwd', 'C:/x', 'a\\b', '.git/HEAD', './a', 'a//b', '', null]) assert.equal(destSeguro(mal), false, String(mal))
 })
 
 // Un repo privado en un plan Free no tiene branch protection: no es un permiso

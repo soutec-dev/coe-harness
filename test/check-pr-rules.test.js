@@ -23,6 +23,9 @@ import {
   luhn,
   escaneaSecretos,
   escaneaDatosSensibles,
+  lineasLargasDeDiff,
+  excepcionesNuevas,
+  evaluaExcepcionesNuevas,
   archivosDeDiff,
   globARegex,
   leeAutorizados,
@@ -218,13 +221,46 @@ test('evaluaSecretos: el detalle dice donde se buscaron', () => {
 
 // --- Secretos: contenido -------------------------------------------------------------
 
-test('pareceSecreto: descarta placeholders y referencias al entorno, acepta credenciales reales', () => {
-  for (const v of ['<your-token>', '${DB_PASSWORD}', '{{ vault_pass }}', '$SECRET', 'changeme', 'your-api-key-here', 'process.env.TOKEN', 'os.environ["X"]', 'xxxxxxxxxx', 'string', 'contraseña', 'example-key-123']) {
+test('pareceSecreto: descarta placeholders y referencias al entorno, acepta credenciales reales (con $ en el medio tambien)', () => {
+  for (const v of ['<your-token>', '${DB_PASSWORD}', '{{ vault_pass }}', '$SECRET', '$(cat secreto)', 'x${FOO}y', '%SECRET%', 'changeme', 'your-api-key-here', 'process.env.TOKEN', 'os.environ["X"]', 'xxxxxxxxxx', 'string', 'contraseña', 'example-key-123']) {
     assert.equal(pareceSecreto(v), false, v)
   }
-  for (const v of ['Sup3rS3cr3t!', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'.replace('EXAMPLE', 'QWERTY'), 'abcdefghijklmnopqrstuvwxyz', 'hunter2hunter2']) {
+  for (const v of ['Sup3rS3cr3t!', 'Pa$$w0rd-larga-123', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'.replace('EXAMPLE', 'QWERTY'), 'abcdefghijklmnopqrstuvwxyz', 'hunter2hunter2']) {
     assert.equal(pareceSecreto(v), true, v)
   }
+})
+
+// Las regex de correos y URLs eran cuadraticas en lineas largas sin "@" ni
+// "://": un commit con una linea patologica vencia el timeout del hook. Ahora
+// hay pre-chequeos baratos y un tope de linea que se cuenta y se avisa.
+test('escaneo: una linea larga patologica no cuelga el check, y las que superan el tope se cuentan', () => {
+  const casiTope = 'a.'.repeat(9_500) // 19 000 caracteres: se escanea
+  const sobreTope = 'a-'.repeat(60_000) // 120 000 caracteres: se omite y se avisa
+  const texto = diffDe({ 'src/datos.js': [casiTope, sobreTope, 'const x = 1'] })
+  const inicio = Date.now()
+  assert.deepEqual(escaneaSecretos(texto), [])
+  assert.deepEqual(escaneaDatosSensibles(texto), [])
+  const ms = Date.now() - inicio
+  assert.ok(ms < 1500, `el escaneo tardo ${ms} ms`)
+  assert.equal(lineasLargasDeDiff(texto), 1)
+  const r = evaluaContenidoSecreto(texto)
+  assert.equal(r.cumple, true)
+  assert.match(r.detalle, /1 linea\(s\) de mas de 20000 caracteres sin escanear/)
+})
+
+test('excepcionesNuevas: los marcadores y las autorizaciones que llegan en el diff se listan como skip, no como OK', () => {
+  const texto = diffDe({
+    'src/a.js': ['const abc = "123" // coe:no-secreto (fixture)', 'const y = 2'],
+    '.datos-autorizados': ['# comentario', 'tests/fixtures/x.json  # sinteticos', ''],
+  })
+  const { marcadores, autorizaciones } = excepcionesNuevas(texto)
+  assert.deepEqual(marcadores, [{ ruta: 'src/a.js', n: 1 }])
+  assert.equal(autorizaciones, 1)
+  const r = evaluaExcepcionesNuevas(texto)
+  assert.equal(r.cumple, null)
+  assert.match(r.detalle, /src\/a\.js:1/)
+  assert.match(r.detalle, /1 linea\(s\) nueva\(s\) en \.datos-autorizados/)
+  assert.equal(evaluaExcepcionesNuevas(diffDe({ 'src/a.js': ['const y = 2'] })).cumple, true)
 })
 
 function diffDe(archivos) {
@@ -465,17 +501,45 @@ test('secretos: una credencial en el contenido de un archivo de codigo falla, co
   assert.equal(correrCheck(dir, ['--grupo', 'secretos']).status, 1)
 })
 
-test('secretos: una nomina falla por nombre y un fixture con documentos por contenido; .datos-autorizados los exime', () => {
+test('secretos: una nomina falla por nombre y un fixture con documentos por contenido; .datos-autorizados los exime solo cuando ya esta en dev', () => {
   const dir = repoConBase()
+  commitear(dir, { '.datos-autorizados': 'rrhh/nomina-2026.xlsx   # autorizado por Gerencia el 2026-01-01\nfixtures/empleados.json # sinteticos\n' }, 'chore: autorizaciones')
   commitear(dir, { 'rrhh/nomina-2026.xlsx': 'binario falso\n', 'fixtures/empleados.json': '[{"cuil": "20-12345678-9", "sueldo": 1}]\n' }, 'feat: datos')
+
+  // La autorizacion viaja en la misma rama que los datos: no vale todavia, y se reporta como excepcion nueva.
   const r = correrCheck(dir, ['--grupo', 'secretos', '--sin-pushear'])
   assert.equal(r.status, 1, r.stdout)
   assert.match(r.stdout, /\[FAIL\] sin-datos-sensibles: .*rrhh\/nomina-2026\.xlsx \(nomina/)
   assert.match(r.stdout, /fixtures\/empleados\.json \(1 documento/)
+  assert.match(r.stdout, /\[skip\] excepciones-nuevas: .*2 linea\(s\) nueva\(s\) en \.datos-autorizados/)
 
-  commitear(dir, { '.datos-autorizados': 'rrhh/nomina-2026.xlsx   # autorizado por Gerencia el 2026-01-01\nfixtures/empleados.json # sinteticos\n' }, 'chore: autorizaciones')
+  // La autorizacion llega a dev (simulado) y los datos vienen despues: ahora si vale.
+  git(dir, 'update-ref', 'refs/remotes/origin/dev', 'HEAD~1')
   const ok = correrCheck(dir, ['--grupo', 'secretos', '--sin-pushear'])
   assert.equal(ok.status, 0, ok.stdout)
+  assert.match(ok.stdout, /\[OK  \] excepciones-nuevas/)
+})
+
+// Sin --remerge-diff, `git log -p` no muestra lo que un merge agrego a mano por
+// encima del merge automatico: un secreto metido asi pasaba el pre-push.
+test('secretos --sin-pushear: un secreto agregado a mano en un merge commit (evil merge) se detecta', () => {
+  const dir = repoConBase()
+  commitear(dir, { 'a.txt': 'a\n' }, 'feat: a')
+  git(dir, 'branch', 'otra', 'origin/dev')
+  git(dir, 'switch', '-q', 'otra')
+  commitear(dir, { 'b.txt': 'b\n' }, 'feat: b')
+  git(dir, 'switch', '-q', 'fix/algo')
+  git(dir, 'merge', '-q', '--no-ff', '--no-commit', 'otra')
+  fs.writeFileSync(path.join(dir, '.env.staging'), 'TOKEN=x\n')
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'src', 'c.js'), 'export const password = "Sup3rS3cr3t!"\n') // coe:no-secreto (fixture)
+  git(dir, 'add', '-A', '--force')
+  git(dir, 'commit', '-q', '-m', 'Merge otra')
+
+  const r = correrCheck(dir, ['--grupo', 'secretos', '--sin-pushear'])
+  assert.equal(r.status, 1, r.stdout)
+  assert.match(r.stdout, /\[FAIL\] sin-secretos: .*\.env\.staging/)
+  assert.match(r.stdout, /\[FAIL\] sin-secretos-en-contenido: .*src\/c\.js:1 \(asignacion-de-secreto\)/)
 })
 
 test('secretos: una ruta con tildes se detecta y .env.example no', () => {

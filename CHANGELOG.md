@@ -52,4 +52,42 @@ herramientas (tablero, trackers, monitor, modos). Ver
   transferibilidad (ningún archivo emitido menciona herramientas internas) y
   dogfood (las copias locales son idénticas a las distribuidas).
 
+### Seguridad (remediaciones de la auditoría previa al release, `docs/security/2026-10-06_103416/`)
+
+- **H-01 (High)** El hook resuelve el destino del push como git: normaliza
+  `heads/x`, deniega los borrados de `main`, ensaya el push con
+  `git push --dry-run --porcelain` y deniega si el destino real es `main`
+  (upstream, `push.default`, `remote.*.push`). Metacaracteres del shell, `git -c`,
+  `--no-verify` y opciones raras piden confirmación en vez de pasar en silencio.
+  Los hooks de `settings.json` ya no llevan filtro `if` (así `git -C`, `git -c` y
+  comandos compuestos llegan al hook) y `git -c` está en `ask`.
+- **H-02** Solo se pushea a `origin`: otro remoto o una URL se deniegan, y sin
+  remoto explícito la URL que ensaya git tiene que ser la de `origin`.
+- **H-03** `plan.js` ignora (y reporta) los `dest` del lockfile fuera del repo
+  (`..`, absolutos, `\`, `.git/`); `apply.js` bloquea borrados, respaldos y
+  escrituras fuera de `cwd`; `verify` falla ante un `dest` inseguro.
+- **H-04** `init`/`upgrade` leen la protección vigente de `main` y solo la
+  endurecen: aprobaciones, code owners, dismiss stale, conversation resolution,
+  restricciones y checks extra se conservan.
+- **H-05** `dev` queda protegida contra force-push y borrado (sin PR obligatorio);
+  la limitación del check autoeditable con 0 aprobaciones queda documentada.
+- **H-06** `settings.json` deniega la edición de los guardarraíles con las tools
+  de edición; `.datos-autorizados` se lee de `origin/dev`; la regla informativa
+  `excepciones-nuevas` lista marcadores y autorizaciones que llegan en el diff.
+- **H-07** Pre-chequeos baratos antes de las regex cuadráticas (`@`, `://`,
+  `Bearer`, `eyJ`…), tope de 20 000 caracteres por línea (se cuenta y se avisa) y
+  `ask` ante timeout o error del script.
+- **H-08** El escaneo de commits sin pushear usa `--remerge-diff` (fallback
+  `-m --first-parent`): un secreto agregado a mano en un merge commit se detecta.
+- **H-09** Acciones de los workflows fijadas por SHA, dependencias con versión
+  exacta y nota en `harness-upgrade` para fijar `#vX.Y.Z`.
+- **H-10** El PostToolUse solo verifica y comenta PRs del repo de `origin`.
+- **H-11** Ninguna ruta de error del pre-push permite el push: todas piden
+  confirmación con el motivo.
+- **H-12** `pareceSecreto` acepta `$` en medio de un valor (solo descarta
+  expresiones `${}`, `$()`, `{{}}` y valores que empiezan con `$`/`%`/`{`).
+- **H-13** La skill `datos-sensibles` describe con honestidad la capa de lectura;
+  las mutaciones por `gh api` piden confirmación.
+- **H-14** `OWNER` ya no toma el `user.name` de git por defecto.
+
 [1.0.0]: https://github.com/soutec-dev/coe-harness/releases/tag/v1.0.0
