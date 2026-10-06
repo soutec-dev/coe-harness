@@ -23,6 +23,7 @@ import {
   salidaPostToolUse,
   procesar,
   prDeEsteRepo,
+  repoDeUrl,
 } from '../templates/base/claude/hooks/reglas-pr.mjs'
 
 // Hook PreToolUse/PostToolUse: los checks de check-pr-rules.mjs corren en la
@@ -463,13 +464,19 @@ test('prePush: revisa la rama nombrada en el refspec con el script confiable del
   assert.notEqual(path.resolve(args[0]), path.resolve(raiz, 'scripts', 'check-pr-rules.mjs'))
 })
 
-test('prDeEsteRepo: el modo manual solo acepta PRs del repo de origin', () => {
-  assert.equal(prDeEsteRepo('https://github.com/org/app/pull/3', 'org/app'), true)
-  assert.equal(prDeEsteRepo('https://github.com/Org/App/pull/3', 'org/app'), true)
-  assert.equal(prDeEsteRepo('https://github.com/otra/org/pull/3', 'org/app'), false)
+test('prDeEsteRepo: el modo manual solo acepta PRs del repo de origin, host incluido', () => {
+  assert.equal(prDeEsteRepo('https://github.com/org/app/pull/3', 'github.com/org/app'), true)
+  assert.equal(prDeEsteRepo('https://github.com/Org/App/pull/3', 'github.com/org/app'), true)
+  assert.equal(prDeEsteRepo('https://github.com/otra/org/pull/3', 'github.com/org/app'), false)
+  assert.equal(prDeEsteRepo('https://ghes.evil.example/org/app/pull/3', 'github.com/org/app'), false)
   assert.equal(prDeEsteRepo('https://github.com/org/app/pull/3', null), false)
-  assert.equal(prDeEsteRepo('12', 'org/app'), true)
-  assert.equal(prDeEsteRepo('http://evil.example/x', 'org/app'), false)
+  assert.equal(prDeEsteRepo('12', 'github.com/org/app'), true)
+  assert.equal(prDeEsteRepo('http://evil.example/x', 'github.com/org/app'), false)
+  // La URL de origin, en todas sus formas, se reduce a host/owner/repo.
+  for (const url of ['https://github.com/Org/App.git', 'https://user@github.com/org/app', 'git@github.com:org/app.git', 'ssh://git@github.com:22/org/app.git', 'https://github.com/org/app/']) {
+    assert.equal(repoDeUrl(url), 'github.com/org/app', url)
+  }
+  assert.equal(repoDeUrl('/tmp/remoto.git'), null)
 })
 
 test('postPR: FAIL de pr-metadata -> block, comentario publicado con la tabla', () => {
