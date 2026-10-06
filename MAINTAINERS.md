@@ -231,3 +231,20 @@ Los invariantes que atrapan casi todo:
 
 Los tests de `check-pr-rules` y del hook corren el script real contra repos git en
 directorios temporales (con espacios en la ruta), sin red.
+
+## Licencia y política de contribuciones
+
+- Licencia Apache 2.0: `LICENSE` (texto íntegro), `NOTICE` (copyright de SOUTEC) y
+  `"license": "Apache-2.0"` en `package.json`. Si alguna vez cambia, se tocan los tres.
+- Sin contribuciones externas, aunque el repo sea público: issues, wiki y proyectos
+  desactivados (Settings → General); interacciones limitadas a colaboradores
+  (Settings → Moderation → Interaction limits). **GitHub caduca ese límite a los seis
+  meses**: hay que renovarlo, con la interfaz o con
+  `gh api -X PUT repos/soutec-dev/coe-harness/interaction-limits -f limit=collaborators_only -f expiry=six_months`.
+  Los workflows de PRs externos solo corren con aprobación (Settings → Actions →
+  General → "Require approval for all external contributors"). Opcional, solo desde la
+  interfaz: Settings → Moderation → Code review limits, para que solo quien tenga
+  acceso pueda aprobar o pedir cambios.
+- Si aun así llega un PR o un issue externo, se cierra con un comentario cortés que
+  remita a `CONTRIBUTING.md`; un fork externo es legítimo (lo permite la licencia), lo
+  que no se acepta es el cambio en este repo.

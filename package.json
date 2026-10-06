@@ -26,6 +26,6 @@
     "type": "git",
     "url": "git+https://github.com/soutec-dev/coe-harness.git"
   },
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "private": false
 }

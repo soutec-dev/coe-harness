@@ -277,3 +277,15 @@ El harness y el CLI se versionan juntos (`harnessVersion` del manifest ==
 `main` solo recibe merges desde `dev`: el trabajo entra a `dev` por PR de rama, y el
 release es un **PR de `dev` a `main`** con la versión propuesta en el cuerpo y el
 estado de la `security-audit`. Tras el merge, `tag-release.yml` crea los tags.
+
+## Licencia y contribuciones
+
+coe-harness se distribuye bajo la **Apache License 2.0** (`LICENSE`, `NOTICE`): puedes
+usarlo, copiarlo, modificarlo y redistribuirlo, también en proyectos de otras empresas,
+conservando los avisos de copyright y de licencia e indicando los cambios. El
+repositorio es público para que cualquiera pueda leerlo, auditarlo e instalarlo, **no
+para recibir contribuciones externas**: el desarrollo lo lleva la organización
+`soutec-dev`, los pull requests e issues de personas ajenas a la organización se
+cierran sin revisión, y los canales de issues, wiki y proyectos están desactivados. Si
+necesitas una variante propia, haz un fork. El detalle está en `CONTRIBUTING.md`; los
+problemas de seguridad se reportan en privado a los mantenedores (`MAINTAINERS.md`).
