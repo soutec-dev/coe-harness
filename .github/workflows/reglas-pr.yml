@@ -1,0 +1,52 @@
+name: Reglas PR
+
+# Los tres grupos de scripts/check-pr-rules.mjs en UN solo job, para gastar un
+# runner por PR y no tres. rama-commits es informativo (continue-on-error);
+# secretos y pr-metadata hacen fallar el job: "reglas-pr" es el check requerido
+# en la branch protection de main (src/core/github-protect.js del harness).
+# El hook reglas-pr de Claude Code corre estos mismos checks en la sesion del
+# agente, antes del push y al crear el PR; CI es la segunda linea, para lo que
+# llega desde fuera de la sesion. Este workflow y el script los distribuye y
+# actualiza el harness (coe-harness upgrade); no los edites a mano.
+#
+# Si la organizacion necesita pausar Actions, reemplaza el bloque `on:` por
+# `on: workflow_dispatch:` y quita "reglas-pr" de los checks requeridos de main;
+# el hook de la sesion sigue cubriendo el push y el PR.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+concurrency:
+  group: reglas-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  reglas-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      # Acciones fijadas por SHA (el tag al lado es solo informativo): un tag
+      # movil de una accion es codigo ajeno que cambia sin que nadie lo revise.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: rama y commits (informativo)
+        continue-on-error: true
+        run: node scripts/check-pr-rules.mjs --grupo rama-commits --pr ${{ github.event.pull_request.number }}
+
+      - name: secretos y datos sensibles
+        run: node scripts/check-pr-rules.mjs --grupo secretos --pr ${{ github.event.pull_request.number }}
+
+      - name: metadata del PR (base, mergeable, version, secciones, security review, datos sensibles)
+        run: node scripts/check-pr-rules.mjs --grupo pr-metadata --pr ${{ github.event.pull_request.number }}

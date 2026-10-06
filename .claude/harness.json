@@ -1,0 +1,116 @@
+{
+  "harness": "coe-harness",
+  "harnessVersion": "1.0.0",
+  "cliVersion": "1.0.0",
+  "installedAt": "2026-10-06T19:25:11.473Z",
+  "greenfield": false,
+  "skills": [
+    "adr-new",
+    "coe-github",
+    "datos-sensibles",
+    "harness-upgrade",
+    "security-audit",
+    "security-report-standard"
+  ],
+  "vars": {
+    "PROJECT_NAME": "coe-harness",
+    "PROJECT_TYPE": "automation",
+    "STACK": "Node.js",
+    "LANGUAGE": "español",
+    "OWNER": "soutec-dev",
+    "HARNESS_VERSION": "1.0.0"
+  },
+  "detected": {
+    "stacks": [
+      "node"
+    ],
+    "packageManager": null
+  },
+  "files": {
+    "CLAUDE.md": {
+      "policy": "user-owned",
+      "hash": "c0eb4d805b463a27"
+    },
+    "notes.md": {
+      "policy": "user-owned",
+      "hash": "987f3d7b87632f16"
+    },
+    ".claude/settings.json": {
+      "policy": "merge-json",
+      "hash": "0fe4b909136739f5"
+    },
+    ".claude/hooks/reglas-pr.mjs": {
+      "policy": "managed",
+      "hash": "8ce2ff76629bbaf1"
+    },
+    ".datos-autorizados": {
+      "policy": "user-owned",
+      "hash": "d6e18271b14ffd0d"
+    },
+    ".github/pull_request_template.md": {
+      "policy": "user-owned",
+      "hash": "4777f522ecff9b15"
+    },
+    ".github/CODEOWNERS": {
+      "policy": "user-owned",
+      "hash": "891f19f2e16842df"
+    },
+    "scripts/check-pr-rules.mjs": {
+      "policy": "managed",
+      "hash": "e567f0b499534b75"
+    },
+    ".github/workflows/reglas-pr.yml": {
+      "policy": "managed",
+      "hash": "157bd22a8d02491c"
+    },
+    "scripts/tag-release.mjs": {
+      "policy": "managed",
+      "hash": "e55bf5362b38845b"
+    },
+    ".github/workflows/tag-release.yml": {
+      "policy": "managed",
+      "hash": "ca32f7cb3f386229"
+    },
+    ".claude/skills/coe-github/SKILL.md": {
+      "policy": "managed",
+      "hash": "caeb9eca560739ac"
+    },
+    ".claude/skills/datos-sensibles/SKILL.md": {
+      "policy": "managed",
+      "hash": "7c1bb141dfc3ec64"
+    },
+    ".claude/skills/security-audit/SKILL.md": {
+      "policy": "managed",
+      "hash": "322bbd7c2b1f9d3a"
+    },
+    ".claude/skills/security-audit/report-template.md": {
+      "policy": "managed",
+      "hash": "7997d7127ad36018"
+    },
+    ".claude/skills/security-report-standard/SKILL.md": {
+      "policy": "managed",
+      "hash": "bbc733df13203d35"
+    },
+    ".claude/skills/adr-new/SKILL.md": {
+      "policy": "managed",
+      "hash": "41ef9cf65a01ea9b"
+    },
+    "docs/decisions/README.md": {
+      "policy": "managed",
+      "hash": "337a391b1aae5226"
+    },
+    "docs/decisions/_template.md": {
+      "policy": "managed",
+      "hash": "6e38a96a3255f3f4"
+    },
+    ".claude/skills/harness-upgrade/SKILL.md": {
+      "policy": "managed",
+      "hash": "68f45f3940bc34e6"
+    }
+  },
+  "blocks": {
+    ".gitignore": {
+      "hash": "cad997073616e285"
+    }
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "effortLevel": "medium",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/*.pfx)",
+      "Read(./**/*.p12)",
+      "Read(./**/*.jks)",
+      "Read(./**/*.keystore)",
+      "Read(./**/*.ppk)",
+      "Read(./**/credentials.json)",
+      "Read(./**/secrets.json)",
+      "Read(./**/secret.json)",
+      "Read(./**/client_secret*.json)",
+      "Read(./**/*service-account*.json)",
+      "Read(./**/*serviceaccount*.json)",
+      "Read(./**/id_rsa*)",
+      "Read(./**/id_ecdsa*)",
+      "Read(./**/id_ed25519*)",
+      "Read(./**/*.tfstate)",
+      "Read(./**/*.tfstate.backup)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.ssh/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/.kube/config)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.netrc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.npmrc)",
+      "Read(~/.pypirc)",
+      "Edit(./.claude/hooks/**)",
+      "Edit(./.claude/settings.json)",
+      "Edit(./scripts/check-pr-rules.mjs)",
+      "Edit(./.datos-autorizados)",
+      "Edit(./.github/workflows/**)",
+      "Edit(./.git/**)",
+      "Edit(~/.gitconfig)",
+      "Edit(~/.config/git/**)",
+      "Edit(~/.bashrc)",
+      "Edit(~/.bash_profile)",
+      "Edit(~/.profile)",
+      "Edit(~/.zshrc)",
+      "Edit(~/.zprofile)",
+      "Edit(~/.zshenv)",
+      "Edit(~/Documents/PowerShell/**)",
+      "Edit(~/Documents/WindowsPowerShell/**)",
+      "Bash(git push origin main*)",
+      "Bash(git push * main)",
+      "Bash(git push * *:main*)",
+      "Bash(git push origin master*)",
+      "Bash(git push * *:master*)",
+      "Bash(git push --all*)",
+      "Bash(git push --mirror*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh release:*)",
+      "Bash(gh repo create:*)",
+      "Bash(gh repo delete:*)",
+      "PowerShell(git push origin main*)",
+      "PowerShell(git push * main)",
+      "PowerShell(git push * *:main*)",
+      "PowerShell(git push origin master*)",
+      "PowerShell(git push * *:master*)",
+      "PowerShell(git push --all*)",
+      "PowerShell(git push --mirror*)",
+      "PowerShell(gh pr merge:*)",
+      "PowerShell(gh pr review:*)",
+      "PowerShell(gh release:*)",
+      "PowerShell(gh repo create:*)",
+      "PowerShell(gh repo delete:*)"
+    ],
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(git merge:*)",
+      "Bash(node scripts/check-pr-rules.mjs:*)",
+      "Bash(node .claude/hooks/reglas-pr.mjs:*)",
+      "PowerShell(git push:*)",
+      "PowerShell(git merge:*)",
+      "PowerShell(node scripts/check-pr-rules.mjs:*)",
+      "PowerShell(node .claude/hooks/reglas-pr.mjs:*)"
+    ],
+    "ask": [
+      "Bash(git reset --hard:*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git push --no-verify*)",
+      "Bash(git -c *)",
+      "Bash(git filter-repo:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(gh api -X*)",
+      "Bash(gh api --method*)",
+      "Bash(gh api -f*)",
+      "Bash(gh api -F*)",
+      "Bash(gh api --field*)",
+      "Bash(gh api --raw-field*)",
+      "Bash(gh api --input*)",
+      "PowerShell(git reset --hard:*)",
+      "PowerShell(git push --force*)",
+      "PowerShell(git push -f*)",
+      "PowerShell(git push --force-with-lease*)",
+      "PowerShell(git push --no-verify*)",
+      "PowerShell(git -c *)",
+      "PowerShell(git filter-repo:*)",
+      "PowerShell(git filter-branch:*)",
+      "PowerShell(gh api -X*)",
+      "PowerShell(gh api --method*)",
+      "PowerShell(gh api -f*)",
+      "PowerShell(gh api -F*)",
+      "PowerShell(gh api --field*)",
+      "PowerShell(gh api --raw-field*)",
+      "PowerShell(gh api --input*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
+            "timeout": 300
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

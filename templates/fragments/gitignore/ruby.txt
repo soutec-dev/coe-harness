@@ -1,0 +1,5 @@
+# Ruby
+.bundle/
+vendor/bundle/
+log/
+tmp/

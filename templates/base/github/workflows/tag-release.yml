@@ -1,0 +1,39 @@
+name: Tag de release
+
+# Automatiza lo que la skill coe-github documenta: tras el merge de release
+# dev -> main, crea el tag inmutable vX.Y.Z (leyendo package.json del commit de
+# merge) y mueve el tag móvil vX. No crea el GitHub Release: eso sigue siendo
+# del coordinador. Este workflow y scripts/tag-release.mjs los distribuye y
+# actualiza el harness (coe-harness upgrade); no los edites a mano. En repos
+# sin Actions, el agente corre el mismo script tras el merge:
+#   git fetch origin && node scripts/tag-release.mjs --ref origin/main
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  tag-release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # Acciones fijadas por SHA (el tag al lado es solo informativo).
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: identidad git para el tag anotado
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: crea/actualiza el tag de release
+        run: node scripts/tag-release.mjs

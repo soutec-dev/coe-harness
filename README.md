@@ -19,10 +19,35 @@ Tres reglas duras, y nada más:
    `security-audit` antes de cada release `dev` → `main`.
 
 ```bash
-npx github:soutecdev/coe-harness#v1
+npx github:soutec-dev/coe-harness#v1
 ```
 
-Sin registry, sin `.npmrc`, sin token. Solo hace falta git y Node ≥ 22.4.
+Sin registry, sin `.npmrc`, sin token. Hace falta git, Node ≥ 22.4 y GitHub CLI
+(`gh`) autenticado — lo usan la protección de `main` y los checks del PR en la
+sesión. Funciona con cuentas gratuitas de GitHub sin configurar nada (ver
+[GitHub Actions y planes de GitHub](#github-actions-y-planes-de-github)).
+
+## Instalar pidiéndoselo a un agente
+
+No hace falta saber nada del harness para instalarlo. Abre Claude Code en la raíz del
+repositorio (nuevo o con código, con el remoto de GitHub ya configurado) y pégale
+esto:
+
+> Instala el harness **coe-harness** en este repositorio: ejecuta
+> `npx github:soutec-dev/coe-harness#v1 init` y responde sus preguntas conmigo
+> (nombre del proyecto, tipo, idioma y qué skills opcionales instalar). Si el repo no
+> tiene rama `dev`, créala desde `main` y pushéala. Al terminar, muéstrame qué
+> archivos creó, dime si la protección de `main` quedó configurada en GitHub o por
+> qué no, y recuérdame reiniciar la sesión para que carguen los hooks.
+
+Lo que el agente va a necesitar en la máquina: `git`, Node ≥ 22.4 y `gh` autenticado
+(`gh auth login`). El instalador nunca pisa un archivo existente (si ya hay un
+`CLAUDE.md`, deja la propuesta al lado como `CLAUDE.md.new`), así que es seguro
+correrlo sobre un proyecto en marcha. Después de instalar hay que **reiniciar Claude
+Code**: los hooks se cargan al iniciar la sesión, no en caliente.
+
+Para actualizar más adelante alcanza con decirle al agente "actualiza el harness"
+(skill `harness-upgrade`): trae la última versión sin pisar lo que el equipo editó.
 
 ## Qué instala
 
@@ -136,7 +161,7 @@ vuelve a mencionarlos. La única referencia externa que queda es la URL de este
 repo, para `upgrade`. El porqué completo está en
 [docs/decisions/20261005-coe-harness-para-proyectos-externos.md](docs/decisions/20261005-coe-harness-para-proyectos-externos.md).
 
-## GitHub Actions
+## GitHub Actions y planes de GitHub
 
 El harness instala dos workflows y la skill `coe-github` prohíbe crear otros:
 
@@ -146,11 +171,82 @@ El harness instala dos workflows y la skill `coe-github` prohíbe crear otros:
   Node; en otros stacks la skill `harness-upgrade` guía al agente para escribir el
   equivalente.
 
+**Funciona con cuentas gratuitas de GitHub**, personales u organizaciones, sin
+configurar nada ni tomar decisiones al instalar:
+
+| | Repo público | Repo privado en plan Free | Repo privado en Pro / Team / Enterprise |
+|---|---|---|---|
+| Workflows `reglas-pr` y `tag-release` | Sí, sin límite de minutos | Sí, dentro de los 2.000 min/mes del plan (una corrida de `reglas-pr` gasta ~1 min) | Sí |
+| Protección de `main` desde `init`/`upgrade` | Sí | **GitHub no la ofrece en ese plan.** El harness lo detecta, lo dice en una línea y sigue: la regla la sostienen el hook `reglas-pr` en la sesión y la revisión del coordinador | Sí |
+| CODEOWNERS | Sí | GitHub lo ignora en ese plan; el archivo queda listo para cuando aplique | Sí |
+
+Lo único que cambia entre planes es si GitHub, además del hook, rechaza los push a
+`main` del otro lado. Para tener esa protección en un repo privado alcanza con pasar
+a GitHub Pro (cuentas personales) o Team (organizaciones), o hacer público el repo,
+y correr `coe-harness upgrade`.
+
 Si la organización necesita pausar Actions, se reemplaza el `on:` de cada workflow
 por `workflow_dispatch:` y se quita `reglas-pr` de los checks requeridos de `main`
-(`CHECKS_REQUERIDOS` en `src/core/github-protect.js`): el hook de la sesión sigue
-cubriendo el push y el PR, y los tags los crea el agente con
-`node scripts/tag-release.mjs --ref origin/main`.
+(`CHECKS_REQUERIDOS` en `src/core/github-protect.js`, y `coe-harness upgrade` lo
+reaplica): el hook de la sesión sigue cubriendo el push y el PR, y los tags los crea
+el agente con `node scripts/tag-release.mjs --ref origin/main`.
+
+## Seguridad: qué garantiza y qué no
+
+Antes del primer release el harness pasó por su propia skill `security-audit`
+(informe en `docs/security/`). Lo que conviene saber al adoptarlo:
+
+- **El hook trabaja sobre el comando y sobre el ensayo de git.** Reconoce la forma
+  canónica `git push [-u] origin <rama>` (también con `cd <ruta literal> &&`
+  delante, con `git -C <ruta>` y a través de un alias de git que sea `push`),
+  escanea los commits que subirían, le pide a git que ensaye el push (`--dry-run`,
+  sin `-q`) y deniega si el destino real es `main` (upstream, `push.default`,
+  `heads/main`) o si la URL a la que iría no es la del repo de `origin` (`pushurl`,
+  `pushInsteadOf`). **Todo lo que no puede analizar con certeza pide confirmación
+  en vez de dejarlo pasar**: expansiones del shell, `git -c`, variables de entorno,
+  opciones desconocidas o abreviadas, `--no-verify`, `--force-with-lease`; un
+  `git commit`, `git checkout`, `source`, `export`, una función o un alias
+  definidos antes del push en el mismo comando; una carpeta que no puede resolver
+  (`cd "$PWD"`, `cd -` sin carpeta anterior, rutas que no existen); un `git`
+  envuelto en otro programa (`env`, `sh -c`, `timeout`, `cmd /c`); un subcomando
+  que no es literal (`git $s`); un alias de git que puede hacer push; `git push`
+  dentro de una cadena o un script; un ensayo que falla o no informa destino; y
+  quedarse sin tiempo (responde antes del timeout del hook, porque un hook
+  cancelado por timeout no bloquea nada). Por eso la regla de uso es **el push va
+  solo, en su propio comando**. Lo que no ve: scripts y programas que pushean sin
+  que `git push` aparezca en el comando (`npm run deploy`, `node -e`, herramientas
+  MCP de git), funciones o alias de shell definidos en los archivos de arranque
+  (`~/.bashrc`, perfil de PowerShell: el harness deniega editarlos con las tools de
+  edición, no con `cat >>`) y pushes hechos fuera de Claude Code; para eso está la
+  protección de `main` en GitHub, donde el plan la ofrece.
+- **Solo se pushea a `origin`.** Otro remoto o una URL se deniegan en la sesión, y
+  también un `origin` cuya URL de push apunte a otro repositorio.
+- **Las excepciones son del usuario.** `.datos-autorizados` vale cuando ya está en
+  `dev` (el check lo lee de `refs/remotes/origin/dev`) y llega a `dev` por PR: el
+  hook deniega el push directo a `dev` de commits que agreguen autorizaciones. Los
+  marcadores `coe:no-secreto` nuevos se listan en el resultado para el revisor. El
+  agente no puede editar los guardarraíles con sus tools de edición
+  (`.claude/hooks/`, `settings.json`, `scripts/check-pr-rules.mjs`,
+  `.datos-autorizados`, workflows, `.git/`, `~/.gitconfig`, archivos de arranque
+  del shell).
+- **Con 0 aprobaciones obligatorias, el autor de un PR controla el check**
+  (`reglas-pr` corre el script del propio PR). Es la contrapartida de no trabar
+  equipos de dos personas. Equipos con dos o más revisores deben subir a 1
+  aprobación y activar "require review from code owners" en Settings > Branches:
+  `init`/`upgrade` nunca rebajan lo que se endureció a mano, solo lo completan.
+- **`#v1` es un tag móvil** (parches sin intervención). Quien necesite fijar
+  versión usa `#vX.Y.Z`. Los tags inmutables `vX.Y.Z` de este repo están
+  protegidos contra cambios y borrados; las acciones de los workflows van fijadas
+  por SHA y las dependencias con versión exacta.
+- **Lo que el escaneo no detecta**: nombres sueltos, datos sin forma de patrón,
+  binarios, `.svg`, `.map`, lockfiles, líneas de más de 8 000 caracteres (se
+  avisan), secretos codificados y valores con palabras de ejemplo. Las reglas de
+  `Read` frenan la tool `Read`, no `cat` en Bash: el control real es el gate de
+  push más la revisión humana.
+- **Las cuentas con permiso de admin en GitHub** pueden desactivar la protección
+  de `main` o el check requerido; es la contrapartida de que `init`/`upgrade`
+  puedan configurarlos. Conviene que sean pocas, con 2FA obligatorio en la
+  organización, y que la protección se revise al transferir el repo.
 
 ## Desarrollo
 
@@ -181,3 +277,15 @@ El harness y el CLI se versionan juntos (`harnessVersion` del manifest ==
 `main` solo recibe merges desde `dev`: el trabajo entra a `dev` por PR de rama, y el
 release es un **PR de `dev` a `main`** con la versión propuesta en el cuerpo y el
 estado de la `security-audit`. Tras el merge, `tag-release.yml` crea los tags.
+
+## Licencia y contribuciones
+
+coe-harness se distribuye bajo la **Apache License 2.0** (`LICENSE`, `NOTICE`): puedes
+usarlo, copiarlo, modificarlo y redistribuirlo, también en proyectos de otras empresas,
+conservando los avisos de copyright y de licencia e indicando los cambios. El
+repositorio es público para que cualquiera pueda leerlo, auditarlo e instalarlo, **no
+para recibir contribuciones externas**: el desarrollo lo lleva la organización
+`soutec-dev`, los pull requests e issues de personas ajenas a la organización se
+cierran sin revisión, y los canales de issues, wiki y proyectos están desactivados. Si
+necesitas una variante propia, haz un fork. El detalle está en `CONTRIBUTING.md`; los
+problemas de seguridad se reportan en privado a los mantenedores (`MAINTAINERS.md`).

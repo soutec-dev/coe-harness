@@ -1,0 +1,4 @@
+# Go
+bin/
+vendor/
+*.exe
