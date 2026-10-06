@@ -1,0 +1,43 @@
+name: CI
+
+# Suite del generador, solo en PRs (no en cada push): un runner Linux y uno
+# Windows, porque los repos consumidores viven en los dos (rutas con espacios,
+# CRLF, OneDrive). Node 24 es la version de trabajo; el piso de engines
+# (>=22.4) lo custodia package.json + .npmrc (engine-strict).
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: npm ci
+
+      # node --test corre archivos en paralelo por defecto; en CI se serializa
+      # para que el runner no corrompa su canal IPC bajo solapamiento de hijos.
+      - run: npm run test:ci
+
+      - name: verifica integridad del manifest (huerfanos, rutas rotas, duplicados, criticos)
+        run: node bin/cli.mjs verify --strict
+
+      # El CLI tiene que poder instalarse sobre un repo real sin escribir nada.
+      - name: dry-run sobre el propio repo
+        run: node bin/cli.mjs upgrade --dry-run --yes
