@@ -1,11 +1,15 @@
 # 03 — Resumen de la remediación
 
-Dos ciclos de remediación (la skill admite hasta tres). El primero (`41100bf` más
-un ajuste a `excepciones-nuevas`) cerró los hallazgos H-01 a H-14 del informe
+Tres ciclos de remediación, el máximo que admite la skill. El primero (`41100bf`
+más un ajuste a `excepciones-nuevas`) cerró los hallazgos H-01 a H-14 del informe
 inicial; la revisión final del ciclo 1 encontró un High nuevo (N-01) y varios
-Medium/Low, y el segundo ciclo (`d9c52d8`, `1930816`, `3501be0`) los cerró. El
-detalle del segundo ciclo está en la sección "Segundo ciclo" al final. Suite tras
-el ciclo 2: **158 tests, 158 pass** (ver `04-test-evidence.md`).
+Medium/Low, y el segundo ciclo (`d9c52d8`, `1930816`, `3501be0`) los cerró; la
+revisión final del ciclo 2 encontró otro High de la misma clase (R-01: pushes que
+el hook no modelaba y dejaba pasar en silencio) y tres Medium, y el tercer ciclo
+(`79e909d`) los cerró cambiando el principio del hook: **todo lo que no puede
+analizar con certeza pide confirmación**. El detalle de cada ciclo está en las
+secciones "Segundo ciclo" y "Tercer ciclo" al final. Suite tras el ciclo 3: **171
+tests, 171 pass** (ver `04-test-evidence.md`).
 
 ## Ciclo 1
 
@@ -141,3 +145,72 @@ verde sobre los tres commits; `npm audit --omit=dev` sin vulnerabilidades.
 - Fricción asumida: un comando que encadena `git commit` (o un cambio de rama) con
   `git push` pide confirmación. Es deliberado: el hook solo puede garantizar lo que
   ve en el momento en que corre.
+
+## Tercer ciclo — hallazgos de la revisión final del ciclo 2 (R-01 a R-09)
+
+Commit: `79e909d`. Suite tras el ciclo: 171 tests, 171 pass; `verify --strict` en
+verde; autocheck de secretos en verde; `npm audit --omit=dev` sin vulnerabilidades.
+El principio que ordena el ciclo: el hook reconoce la forma canónica del push
+(`git push [-u] origin <rama>`, con `cd <ruta literal> &&` o `git -C <ruta>` si hace
+falta) y **todo lo demás que mencione git de una forma que no puede analizar termina
+en `ask`**, nunca en silencio.
+
+| Hallazgo | Estado | Cambio |
+|---|---|---|
+| R-01 (High) pushes no modelados | Cerrado | **Carpetas**: `aplicaCd`/`resuelveRuta` siguen `cd -` (carpeta anterior), `pushd`/`popd` y `Push-Location`/`Pop-Location` (pila), `cd` a secas y `~` (home) y traducen las rutas POSIX de Git Bash en Windows (`/c/…`, `/cygdrive/c/…`); una carpeta con variables, sustituciones o comodines, un `popd` sin `pushd`, un `cd -` sin anterior o una ruta `/tmp`-style en Windows queda **irresoluble**, y una carpeta irresoluble, inexistente o que no es un repo hace que `prePush` aplique los deny estáticos (masivo, forzado, remoto, `main` en el texto) y pida confirmación por lo demás ("no pude determinar en qué repositorio corre este push"); un repo git ajeno sin el script sigue omitiéndose. **Entorno**: `queCambia` marca como cambio previo `source`, `.`, `eval`, `exec`, `alias`/`unalias`, `Set-Alias`/`New-Alias`, `Invoke-Expression`, `Set-Variable`, `Set-Item`, `Import-Module`, definiciones de función (`git() {`, `function git`), variables de PowerShell, `SetEnvironmentVariable`, `-c alias.*` y subcomandos no literales. **Indirecciones**: un `git` en posición no inicial cuenta si la palabra siguiente es `push` o si va precedido de un envoltorio (`env`, `command`, `exec`, `nice`, `time`, `timeout`, `sudo`, `nohup`, `xargs`, `cmd /c`, `Start-Process`, `powershell`, `bash`, `sh`…), y un push envuelto pide confirmación; `invocacionesDeGit` devuelve `sospechas` que `procesar` convierte en `ask`: subcomando no literal (`git $s`), git sin subcomando dentro de un envoltorio (`xargs git`), `git push` dentro de una cadena, un script o una asignación (`sh -c '…'`, `cmd="git push …"`, `Invoke-Expression`, `node -e`), comando que es una variable; los alias de git se resuelven (`git --list-cmds=builtins` + `git config --get alias.<sub>`): un alias que es `push` se analiza como push (y pide confirmación), uno que contiene `push` pide confirmación, variables de entorno delante de un subcomando no nativo piden confirmación |
+| R-02 (Medium) hooks duplicados | Cerrado | `seedMerge` identifica las entradas de `hooks` por matcher + comandos (`identidadDeHook`): la del harness reemplaza a la anterior y las copias duplicadas se funden; el test de dogfood exige hooks y permisos exactamente iguales a la plantilla; la copia dogfood volvió a dos entradas por evento |
+| R-03 (Medium) `origin` desviado | Cerrado | La URL del ensayo se compara siempre con la de fetch de `origin` (`mismoRepo`: misma URL o mismo host/owner/repo, para admitir https de fetch y ssh de push); si difiere → deny con el motivo (`pushurl`/`pushInsteadOf`) |
+| R-04 (Medium) autoexención por `dev` | Cerrado | Si el escaneo reporta líneas nuevas en `.datos-autorizados` y el destino (real o textual) incluye `dev` → deny; a la rama de trabajo se permite, porque la autorización entra a `dev` por PR |
+| R-05 (Low) `GIT~1` | Cerrado | `dentroDelRepo` decide sobre la ruta real completa: `.git` en cualquier segmento de la ruta relativa real (nombres cortos 8.3 incluidos) y symlinks en la última componente quedan bloqueados; test con `GIT~1/HEAD` (se omite donde el volumen no tiene nombres 8.3) |
+| R-06 (Info) motivo del ensayo | Cerrado | `motivoDelEnsayo` descarta `Pushing to`/`Done`/`To`/`Everything up-to-date` y prefiere `fatal:`/`error:` |
+| R-07 (Info) comentario de `MAX_LINEA` | Cerrado | Corregido (~320 ms por línea mixta de 8 000; ~100 líneas largas por cabeza antes de agotar los 45 s) |
+| R-08 (Low) documentación y arranque del shell | Cerrado | `settings.json` deniega `Edit` sobre `./.git/**`, `~/.gitconfig`, `~/.config/git/**` y los archivos de arranque de bash, zsh y PowerShell; README enumera lo que el hook no ve (scripts y programas que pushean sin `git push` en el comando, `npm run`, `node -e`, herramientas MCP de git, archivos de arranque editados fuera de las tools, pushes fuera de Claude Code) y la protección de `main` en GitHub como muro |
+| R-09 (Info) falsos positivos | Cerrado | `set -e`/`set -o pipefail` ya no cuentan como cambio de entorno (`set X=1` sí); `git tag` previo se mantiene como cambio de contenido (deliberado) |
+
+### Pruebas agregadas en el ciclo 3
+
+- `test/hook-reglas-pr.test.js`: carpetas (`cd -`, `pushd`/`popd`, `cd` solo, `~`,
+  `Set-Location -`, redirecciones, irresolubles con `$PWD`/`$OLDPWD`/`$(…)`/`-C
+  "$PWD"`/`cd -` inicial/`popd` suelto/`~otro`, recuperación con ruta absoluta,
+  rutas POSIX y `/cygdrive` en Windows); envoltorios (`env`, `timeout 60`, `cmd
+  /c`, `sudo -u`), `grep -rn git` y `echo hola git status` no son invocaciones;
+  sospechas (`git $s`, `$a="push"; git $a`, `sh -c`, asignación con `git push`,
+  `Invoke-Expression`, `node -e`, `xargs git`, `$GIT push`, `-c alias.p=push`) y
+  ausencia de sospechas en `git commit -m "feat: push notifications"` y `git log
+  --grep=push`; `queCambia` con 17 formas de cambio y 8 que no cambian; `prePush`
+  sin repo resuelto (deny estático / ask sin escaneo ni ensayo), envoltorio y alias
+  → ask, `pushurl` → deny y mismo repo por ssh → pasa, autorización nueva a `dev`
+  → deny y a la rama → pasa; `procesar` con alias `p=push` (deny a `main`, ask a la
+  rama), `lg`, `sube='!git push…'`, y seis formas no analizables → ask; **hook
+  real**: siete formas de llegar a `main` escondiendo la carpeta o envolviendo a
+  git → deny, trece formas de entorno cargado, envoltorio, variable o carpeta
+  irresoluble → ask, ruta POSIX literal → pasa, alias `p` (deny/ask) y `st`
+  (pasa), parado en `main` con `cd .. && cd -` y `env git push` → deny; `pushurl`
+  a otro bare → deny y al quitarlo → pasa; `.datos-autorizados` nuevo a la rama →
+  pasa y `HEAD:dev` → deny.
+- `test/unit.test.js`: `seedMerge` reemplaza por identidad y funde duplicados;
+  `identidadDeHook`; las listas de permisos siguen siendo unión por valor.
+- `test/dogfood.test.js`: hooks y permisos del `.claude/settings.json` del repo
+  idénticos a la plantilla.
+- `test/migrate.test.js`: `GIT~1/HEAD` bloqueado (Windows con nombres 8.3).
+
+### Riesgos residuales tras el ciclo 3
+
+- Lo que el hook no ve por diseño y queda documentado en README: programas y
+  scripts que pushean sin que `git push` aparezca en el comando (`npm run deploy`,
+  `node -e` sin la cadena literal, herramientas MCP de git), funciones o alias de
+  shell definidos en archivos de arranque editados fuera de las tools de edición,
+  alias de git definidos en comandos previos cuyo valor es un script sin la
+  palabra `push`, y pushes hechos fuera de Claude Code. Mitigación: protección de
+  `main` en GitHub donde el plan la ofrece, y revisión humana del PR.
+- Pendientes de validación en una sesión real de Claude Code (dudas del revisor):
+  que un `ask` del hook prompte aunque exista `allow Bash(git push:*)`, el estado
+  de la tool PowerShell con las reglas espejo, y los modos sin prompt
+  (`bypassPermissions`), donde ningún hook ni regla decide.
+- Fricción asumida y documentada: envoltorios, alias, variables, `cd` no literal y
+  comandos compuestos con `commit`/`checkout`/`source` antes del push piden
+  confirmación; `echo git push` (sin comillas) también.
+- Los residuales de los ciclos anteriores que siguen vigentes: H-05 (0
+  aprobaciones), H-09 (`#v1` móvil), H-12 (palabras de ejemplo), N-09
+  (cuadraticidad bajo el tope, degrada a `ask`), N-12 parcial (`Edit` sobre las
+  plantillas en este repo), N-13 (refs locales bajo `refs/remotes/origin/*`).

@@ -2,7 +2,7 @@
   "harness": "coe-harness",
   "harnessVersion": "1.0.0",
   "cliVersion": "1.0.0",
-  "installedAt": "2026-10-06T18:54:33.480Z",
+  "installedAt": "2026-10-06T19:25:11.473Z",
   "greenfield": false,
   "skills": [
     "adr-new",
@@ -41,7 +41,7 @@
     },
     ".claude/hooks/reglas-pr.mjs": {
       "policy": "managed",
-      "hash": "acf5e8db4fb67ff0"
+      "hash": "8ce2ff76629bbaf1"
     },
     ".datos-autorizados": {
       "policy": "user-owned",

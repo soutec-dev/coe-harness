@@ -400,6 +400,9 @@ export function invocacionesDeGit(comando, cwd, shell = 'bash') {
     const envoltorio = p.slice(0, k)
     if (sub != null && !subLiteral) sospechas.push(`\`${recorte(segmento)}\`: el subcomando de git no es literal`)
     else if (sub == null && envoltorio.length) sospechas.push(`\`${recorte(segmento)}\`: git sin subcomando dentro de un envoltorio`)
+    // `Start-Process git -ArgumentList "push","origin","HEAD:main"`: git va
+    // envuelto y el subcomando viaja empacado en los argumentos del lanzador.
+    else if (sub !== 'push' && envoltorio.length && MENCIONA_GIT_PUSH.test(segmento)) sospechas.push(`\`${recorte(segmento)}\`: git va envuelto con el subcomando empacado en los argumentos del lanzador`)
     if (g.configs.some((c) => /^alias\./i.test(c))) sospechas.push(`\`${recorte(segmento)}\` define un alias de git con -c`)
     invocaciones.push({
       segmento,
@@ -413,6 +416,7 @@ export function invocacionesDeGit(comando, cwd, shell = 'bash') {
       rutaDeGit: g.rutaDeGit,
       entorno: ASIGNACION.test(segmento),
       metacaracteres: METACARACTERES.test(segmento),
+      previos: [...previos],
       cambiosPrevios: previos.map((s) => ({ segmento: recorte(s), cambia: queCambia(s, shell) })).filter((x) => x.cambia),
     })
     previos.push(segmento)
@@ -1072,6 +1076,28 @@ function aliasDe(sub, dir, correr) {
   return valor || null
 }
 
+// Un segmento previo al push que invoca git con un alias (`git co main`, con
+// `alias.co = checkout`) cambia el estado tanto como el comando al que
+// apunta; `queCambia` no puede resolverlo sin git, asi que se resuelve aqui.
+function cambiosPorAlias(previos, shell, dir, correr) {
+  const salida = []
+  for (const segmento of previos) {
+    const q = palabras(segmento, shell)
+    if (!q.length) continue
+    const k = indiceDeGit(q)
+    if (k === -1) continue
+    const g = globalesDeGit(q, k + 1, carpetasDesde(null))
+    const sub = q[g.i]
+    if (sub == null || NO_LITERAL.test(sub) || sub === 'push' || CAMBIA_DESTINO.test(sub) || CAMBIA_CONTENIDO.test(sub) || esNativo(sub, correr)) continue
+    const alias = aliasDe(sub, dir, correr)
+    if (alias == null) continue
+    const primera = palabras(alias)[0] ?? ''
+    const cambia = alias.startsWith('!') || CAMBIA_DESTINO.test(primera) ? 'destino' : CAMBIA_CONTENIDO.test(primera) ? 'contenido' : null
+    if (cambia) salida.push({ segmento: `${recorte(segmento)} (alias \`${sub}\` = \`${recorte(alias)}\`)`, cambia })
+  }
+  return salida
+}
+
 // Los push del comando, incluidos los que llegan por alias (`git p origin`,
 // con `alias.p = push`), y los motivos para preguntar que no son un push
 // analizable: alias que pueden pushear, subcomandos no literales, `git push`
@@ -1080,9 +1106,14 @@ function pushesYSospechas(comando, cwd, shell, correr) {
   const { invocaciones, sospechas } = invocacionesDeGit(comando, cwd, shell)
   const pushes = []
   const motivos = [...sospechas]
+  const conAliasPrevios = (inv) => {
+    const push = analizaPush(inv)
+    push.cambiosPrevios = [...push.cambiosPrevios, ...cambiosPorAlias(inv.previos ?? [], shell, inv.dir, correr)]
+    return push
+  }
   for (const inv of invocaciones) {
     if (inv.sub === 'push') {
-      pushes.push(analizaPush(inv))
+      pushes.push(conAliasPrevios(inv))
       continue
     }
     if (inv.sub == null || !inv.subLiteral || esNativo(inv.sub, correr)) continue
@@ -1094,7 +1125,7 @@ function pushesYSospechas(comando, cwd, shell, correr) {
     if (alias == null) continue
     const partes = palabras(alias)
     if (partes[0] === 'push') {
-      pushes.push(analizaPush({ ...inv, args: [...partes.slice(1), ...inv.args], alias: `\`${inv.sub}\` = \`${recorte(alias)}\`` }))
+      pushes.push(conAliasPrevios({ ...inv, args: [...partes.slice(1), ...inv.args], alias: `\`${inv.sub}\` = \`${recorte(alias)}\`` }))
     } else if (/push/i.test(alias)) {
       motivos.push(`\`git ${inv.sub}\` es un alias de git (\`${recorte(alias)}\`) que puede hacer push`)
     }

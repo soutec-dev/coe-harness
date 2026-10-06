@@ -209,7 +209,18 @@ test('invocacionesDeGit: git envuelto, subcomando no literal, git push dentro de
   assert.match(invocacionesDeGit('xargs git < lista.txt', CWD).sospechas[0], /sin subcomando/)
   assert.match(invocacionesDeGit('$GIT push origin main', CWD).sospechas[0], /no es literal|dentro de una cadena/)
   assert.match(invocacionesDeGit('git -c alias.p=push p origin', CWD).sospechas[0], /alias/)
+  // Lanzadores de PowerShell con el subcomando empacado en los argumentos.
+  for (const comando of [
+    'Start-Process git -ArgumentList "push","origin","HEAD:main" -Wait',
+    'Start-Process git -ArgumentList "push origin HEAD:main"',
+    'Start-Process -FilePath git -ArgumentList push,origin,HEAD:main',
+    'saps git "push","origin"',
+  ]) {
+    assert.match(invocacionesDeGit(comando, CWD, 'powershell').sospechas[0] ?? '', /empacado/, comando)
+  }
+  assert.deepEqual(invocacionesDeGit('Start-Process notepad -ArgumentList x.txt', CWD, 'powershell').sospechas, [])
   assert.deepEqual(invocacionesDeGit('git commit -m "feat: push notifications" && git push origin fix/x', CWD).sospechas, [])
+  assert.deepEqual(invocacionesDeGit('git commit -m "despues: git push" && npm test', CWD).sospechas, [])
   assert.deepEqual(invocacionesDeGit('git log --grep=push && npm test && git status', CWD).sospechas, [])
 })
 
@@ -517,7 +528,7 @@ test('prePush: una autorizacion nueva en .datos-autorizados no entra a dev por p
 test('procesar: los alias de git que hacen push se analizan como push; lo que no se puede analizar pide confirmacion', () => {
   const raiz = repoFalso()
   const entrada = (command, tool_name = 'Bash') => ({ hook_event_name: 'PreToolUse', tool_name, cwd: raiz, tool_input: { command } })
-  const conAlias = correrFalso({ raiz, alias: { p: 'push', lg: 'log --graph', sube: '!git push origin HEAD' } })
+  const conAlias = correrFalso({ raiz, alias: { p: 'push', lg: 'log --graph', sube: '!git push origin HEAD', co: 'checkout', ci: 'commit -v' } })
   assert.equal(procesar(entrada('git p origin HEAD:main'), conAlias.correr).hookSpecificOutput.permissionDecision, 'deny')
   const porAlias = procesar(entrada('git p origin fix/algo'), conAlias.correr)
   assert.equal(porAlias.hookSpecificOutput.permissionDecision, 'ask')
@@ -525,6 +536,12 @@ test('procesar: los alias de git que hacen push se analizan como push; lo que no
   assert.equal(procesar(entrada('git lg'), conAlias.correr), null)
   assert.match(procesar(entrada('git sube'), conAlias.correr).hookSpecificOutput.permissionDecisionReason, /alias/)
   assert.equal(procesar(entrada('git status'), conAlias.correr), null)
+  // Un alias que cambia de rama o commitea ANTES del push cuenta como el comando al que apunta.
+  const porAliasPrevio = procesar(entrada('git co main && git push origin fix/algo'), conAlias.correr)
+  assert.equal(porAliasPrevio.hookSpecificOutput.permissionDecision, 'ask')
+  assert.match(porAliasPrevio.hookSpecificOutput.permissionDecisionReason, /alias `co`/)
+  assert.equal(procesar(entrada('git ci -m "feat: x" && git push origin fix/algo'), conAlias.correr).hookSpecificOutput.permissionDecision, 'ask')
+  assert.equal(procesar(entrada('git lg && git push origin fix/algo'), conAlias.correr), null)
   const { correr } = correrFalso({ raiz })
   for (const [comando, tool] of [
     ["sh -c 'git push origin fix/algo'"],
@@ -981,13 +998,20 @@ test('hook real: carpetas, envoltorios, entorno cargado y alias: nada pasa en si
   }
   assert.equal(push(dir, `cd "${posix}" && git push -u origin fix/algo`), '', 'una ruta literal se resuelve y el push limpio pasa')
 
-  // Un alias que hace push se analiza como push; uno que no, no molesta.
+  // Un alias que hace push se analiza como push; uno que cambia de rama antes
+  // del push cuenta como tal; uno inofensivo no molesta.
   git(dir, 'config', 'alias.p', 'push')
   git(dir, 'config', 'alias.st', 'status')
+  git(dir, 'config', 'alias.co', 'checkout')
   assert.equal(JSON.parse(push(dir, 'git p origin HEAD:main')).hookSpecificOutput.permissionDecision, 'deny')
   assert.equal(JSON.parse(push(dir, 'git p origin fix/algo')).hookSpecificOutput.permissionDecision, 'ask')
+  assert.equal(JSON.parse(push(dir, 'git co main && git push origin fix/algo')).hookSpecificOutput.permissionDecision, 'ask')
+  assert.equal(JSON.parse(push(dir, 'git co main && git push origin')).hookSpecificOutput.permissionDecision, 'ask')
   assert.equal(push(dir, 'git st'), '')
   assert.equal(push(dir, 'git st && git push -u origin fix/algo'), '')
+  // Lanzadores de PowerShell con el subcomando empacado en -ArgumentList.
+  assert.equal(JSON.parse(push(dir, 'Start-Process git -ArgumentList "push","origin","HEAD:main" -Wait', 'PowerShell')).hookSpecificOutput.permissionDecision, 'ask')
+  assert.equal(JSON.parse(push(dir, 'saps git "push","origin","fix/algo"', 'PowerShell')).hookSpecificOutput.permissionDecision, 'ask')
 
   // Parado en main, las formas que esconden la carpeta o envuelven a git tambien se deniegan.
   git(dir, 'switch', '-q', '-c', 'main')
