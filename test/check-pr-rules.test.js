@@ -234,7 +234,7 @@ test('pareceSecreto: descarta placeholders y referencias al entorno, acepta cred
 // "://": un commit con una linea patologica vencia el timeout del hook. Ahora
 // hay pre-chequeos baratos y un tope de linea que se cuenta y se avisa.
 test('escaneo: una linea larga patologica no cuelga el check, y las que superan el tope se cuentan', () => {
-  const casiTope = 'a.'.repeat(9_500) // 19 000 caracteres: se escanea
+  const casiTope = 'a.'.repeat(3_900) // 7 800 caracteres: se escanea
   const sobreTope = 'a-'.repeat(60_000) // 120 000 caracteres: se omite y se avisa
   const texto = diffDe({ 'src/datos.js': [casiTope, sobreTope, 'const x = 1'] })
   const inicio = Date.now()
@@ -245,7 +245,7 @@ test('escaneo: una linea larga patologica no cuelga el check, y las que superan 
   assert.equal(lineasLargasDeDiff(texto), 1)
   const r = evaluaContenidoSecreto(texto)
   assert.equal(r.cumple, true)
-  assert.match(r.detalle, /1 linea\(s\) de mas de 20000 caracteres sin escanear/)
+  assert.match(r.detalle, /1 linea\(s\) de mas de 8000 caracteres sin escanear/)
 })
 
 test('excepcionesNuevas: los marcadores que eximen algo y las autorizaciones nuevas se listan como skip; mencionar el marcador no cuenta', () => {
@@ -306,6 +306,19 @@ test('escaneaSecretos: detecta llaves, tokens y contrasenas reales en las lineas
     'deploy/key.txt:1:llave-privada',
     'ci/.npmrc:1:npm-token',
   ])
+})
+
+// La clave puede venir con prefijo (DB_PASSWORD, db_password, MYSQL_ROOT_PASSWORD)
+// o en camelCase (smtpPassword): \b trataba "_" como letra y no las veia.
+test('escaneaSecretos: claves con prefijo y en camelCase; nombres que solo contienen la palabra no', () => {
+  const texto = diffDe({
+    '.env.local': ['DB_PASSWORD=Sup3rS3cr3t!', 'MYSQL_ROOT_PASSWORD="Sup3rS3cr3t!"'], // coe:no-secreto (fixture)
+    'config/app.yml': ['db_password: Sup3rS3cr3t!', 'smtpPassword = "Sup3rS3cr3t!"', 'maxTokens = 20480000', 'isTokenValid = truthy123'], // coe:no-secreto (fixture)
+  })
+  assert.deepEqual(
+    escaneaSecretos(texto).map((h) => `${h.ruta}:${h.n}`),
+    ['.env.local:1', '.env.local:2', 'config/app.yml:1', 'config/app.yml:2'],
+  )
 })
 
 test('escaneaSecretos: ignora placeholders, referencias al entorno, el marcador coe:no-secreto y los lockfiles', () => {
@@ -519,6 +532,19 @@ test('secretos: una nomina falla por nombre y un fixture con documentos por cont
   const ok = correrCheck(dir, ['--grupo', 'secretos', '--sin-pushear'])
   assert.equal(ok.status, 0, ok.stdout)
   assert.match(ok.stdout, /\[OK  \] excepciones-nuevas/)
+})
+
+// Un tag (o una rama local) llamado "origin/dev" gana la resolucion corta de
+// git (DWIM) y podria aportar un .datos-autorizados a medida: el check lee
+// siempre refs/remotes/origin/dev por su nombre completo.
+test('secretos: un tag llamado origin/dev no sustituye al .datos-autorizados de la rama remota', () => {
+  const dir = repoConBase()
+  commitear(dir, { '.datos-autorizados': 'rrhh/nomina-2026.xlsx   # "autorizado"\n' }, 'chore: autorizacion a medida')
+  git(dir, 'tag', 'origin/dev')
+  commitear(dir, { 'rrhh/nomina-2026.xlsx': 'binario falso\n' }, 'feat: datos')
+  const r = correrCheck(dir, ['--grupo', 'secretos', '--sin-pushear'])
+  assert.equal(r.status, 1, r.stdout)
+  assert.match(r.stdout, /\[FAIL\] sin-datos-sensibles: .*rrhh\/nomina-2026\.xlsx/)
 })
 
 // Sin --remerge-diff, `git log -p` no muestra lo que un merge agrego a mano por

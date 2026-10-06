@@ -55,10 +55,10 @@ en verde; el propio check de secretos del harness sobre los commits en verde.
   estricta.
 - **H-09 (riesgo aceptado con condiciones)**: `#v1` sigue siendo móvil por diseño.
   Condiciones: acciones por SHA y dependencias exactas (hechas); opción de fijar
-  `#vX.Y.Z` documentada en `harness-upgrade`; **pendiente para el coordinador**:
-  ruleset en GitHub que proteja los tags `v*.*.*` contra actualización y borrado
-  (lo intentará el agente tras el release; si la API lo rechaza, queda como
-  tarea del coordinador).
+  `#vX.Y.Z` documentada en `harness-upgrade`; ruleset activo en el repo del
+  harness (`tags inmutables vX.Y.Z`, id 24591508) que bloquea `update`,
+  `deletion` y `non_fast_forward` sobre `refs/tags/v[0-9]*.[0-9]*.[0-9]*` — el
+  tag móvil `v1` queda fuera a propósito para que `tag-release.yml` pueda moverlo.
 - **Alias de git y `pre-push` del desarrollador**: fuera del alcance del hook
   (trabaja sobre el texto del comando y el ensayo de git). Mitigación: protección
   de `main` en GitHub donde el plan la ofrece. Mejora futura anotada: un

@@ -186,4 +186,26 @@ test('apply: una ruta fuera del repo se bloquea aunque llegue dentro del plan', 
   const escritura = { actions: [{ dest: '../afuera.txt', writePath: '../afuera.txt', policy: 'managed', verdict: 'create', content: 'x', reasons: [] }], dirs: [] }
   assert.throws(() => apply({ plan: escritura, cwd: dir, manifest: { harnessVersion: '1.0.0' }, vars: {}, detected, lock: null }), /fuera del repo/)
   assert.ok(!fs.existsSync(path.join(dir, '..', 'afuera.txt')))
+  const directorio = { actions: [], dirs: [{ dest: '../afuera-dir' }] }
+  assert.throws(() => apply({ plan: directorio, cwd: dir, manifest: { harnessVersion: '1.0.0' }, vars: {}, detected, lock: null }), /fuera del repo/)
+  assert.ok(!fs.existsSync(path.join(dir, '..', 'afuera-dir')))
+})
+
+// Un symlink commiteado dentro del repo (docs -> /etc) desviaria una escritura
+// "dentro del repo" hacia fuera: la ruta real del directorio padre tambien se
+// compara. Solo donde se pueden crear symlinks sin privilegios.
+test('apply: una ruta que atraviesa un symlink hacia fuera del repo se bloquea', (t) => {
+  const dir = mkRepo({})
+  const fuera = fs.mkdtempSync(path.join(os.tmpdir(), 'coe-harness fuera '))
+  try {
+    fs.symlinkSync(fuera, path.join(dir, 'enlace'), 'junction')
+  } catch {
+    t.skip('sin permiso para crear symlinks')
+    return
+  }
+  const detected = { stacks: [], packageManager: null, isEmpty: true }
+  const escritura = { actions: [{ dest: 'enlace/x.txt', writePath: 'enlace/x.txt', policy: 'managed', verdict: 'create', content: 'x', reasons: [] }], dirs: [] }
+  assert.throws(() => apply({ plan: escritura, cwd: dir, manifest: { harnessVersion: '1.0.0' }, vars: {}, detected, lock: null }), /fuera del repo/)
+  assert.ok(!fs.existsSync(path.join(fuera, 'x.txt')))
+  fs.rmSync(fuera, { recursive: true, force: true })
 })

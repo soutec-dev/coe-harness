@@ -150,7 +150,7 @@ export function findMissingCriticalFiles(manifest, root = TEMPLATES_DIR) {
 // del repo: la misma regla que computePlan aplica al lockfile.
 export function findUnsafeDests(manifest) {
   const errors = []
-  for (const entry of [...(manifest.files ?? []), ...(manifest.obsolete ?? [])]) {
+  for (const entry of [...(manifest.files ?? []), ...(manifest.obsolete ?? []), ...(manifest.dirs ?? [])]) {
     if (!destSeguro(entry.dest)) {
       errors.push({ type: ERROR, code: 'unsafe-dest', message: `dest "${entry.dest}" no es una ruta relativa segura dentro del repo.` })
     }

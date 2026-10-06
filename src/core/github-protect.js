@@ -50,12 +50,20 @@ function ramaExiste(cwd, repo, rama) {
   }
 }
 
-// La proteccion vigente de una rama, o null si no tiene (404) o no se pudo leer.
+// Un GET de la proteccion que falla con 404 ("Branch not protected") significa
+// "sin proteccion". Cualquier otro fallo (red, permisos, plan, rate limit) no:
+// escribir encima pisaria lo que haya.
+export function sinProteccion(err) {
+  return /HTTP 404|Branch not protected/i.test(`${err?.stderr ?? ''}\n${err?.message ?? ''}`)
+}
+
+// La proteccion vigente de una rama: { existente } con la configuracion (null
+// si no tiene ninguna) o { error, err } si no se pudo leer.
 function proteccionActual(cwd, repo, rama) {
   try {
-    return JSON.parse(sh(['gh', 'api', `repos/${repo}/branches/${rama}/protection`], cwd, ''))
-  } catch {
-    return null
+    return { existente: JSON.parse(sh(['gh', 'api', `repos/${repo}/branches/${rama}/protection`], cwd, '')) }
+  } catch (err) {
+    return sinProteccion(err) ? { existente: null } : { error: primeraLinea(err), err }
   }
 }
 
@@ -92,8 +100,9 @@ export function fusionarProteccion(existente) {
 
   const rsc = existente.required_status_checks ?? {}
   const checksExistentes = rsc.checks ?? (rsc.contexts ?? []).map((context) => ({ context }))
-  const contextos = new Set([...checksExistentes.map((c) => c.context), ...CHECKS_REQUERIDOS])
-  base.required_status_checks = { strict: true, checks: [...contextos].map((context) => ({ context })) }
+  const porContexto = new Map(checksExistentes.map((c) => [c.context, c.app_id == null ? { context: c.context } : { context: c.context, app_id: c.app_id }]))
+  for (const context of CHECKS_REQUERIDOS) if (!porContexto.has(context)) porContexto.set(context, { context })
+  base.required_status_checks = { strict: true, checks: [...porContexto.values()] }
 
   const rev = existente.required_pull_request_reviews ?? {}
   base.required_pull_request_reviews = {
@@ -103,15 +112,27 @@ export function fusionarProteccion(existente) {
     require_last_push_approval: Boolean(rev.require_last_push_approval),
   }
   const dr = rev.dismissal_restrictions
-  if (dr && ((dr.users ?? []).length || (dr.teams ?? []).length)) {
+  if (dr && ((dr.users ?? []).length || (dr.teams ?? []).length || (dr.apps ?? []).length)) {
     base.required_pull_request_reviews.dismissal_restrictions = {
       users: (dr.users ?? []).map((u) => u.login),
       teams: (dr.teams ?? []).map((t) => t.slug),
+      apps: (dr.apps ?? []).map((a) => a.slug),
+    }
+  }
+  const bypass = rev.bypass_pull_request_allowances
+  if (bypass && ((bypass.users ?? []).length || (bypass.teams ?? []).length || (bypass.apps ?? []).length)) {
+    base.required_pull_request_reviews.bypass_pull_request_allowances = {
+      users: (bypass.users ?? []).map((u) => u.login),
+      teams: (bypass.teams ?? []).map((t) => t.slug),
+      apps: (bypass.apps ?? []).map((a) => a.slug),
     }
   }
 
   if (existente.required_conversation_resolution?.enabled) base.required_conversation_resolution = true
   if (existente.required_linear_history?.enabled) base.required_linear_history = true
+  if (existente.lock_branch?.enabled) base.lock_branch = true
+  if (existente.block_creations?.enabled) base.block_creations = true
+  if (existente.allow_fork_syncing?.enabled) base.allow_fork_syncing = true
   if (existente.restrictions) {
     base.restrictions = {
       users: (existente.restrictions.users ?? []).map((u) => u.login),
@@ -156,8 +177,14 @@ function aplicar(cwd, repo, rama, cuerpo) {
 
 function protegeDev(cwd, repo) {
   if (!ramaExiste(cwd, repo, RAMA_INTEGRACION)) return
-  // Si dev ya tiene alguna proteccion, es del equipo: no se toca.
-  if (proteccionActual(cwd, repo, RAMA_INTEGRACION)) return
+  // Si dev ya tiene alguna proteccion, es del equipo: no se toca. Y si no se
+  // pudo leer, tampoco: pisar a ciegas es peor que no proteger.
+  const lectura = proteccionActual(cwd, repo, RAMA_INTEGRACION)
+  if (lectura.error) {
+    ui.log.warn(`No se pudo leer la proteccion de "${RAMA_INTEGRACION}" en ${repo} (${lectura.error}): no se toca.`)
+    return
+  }
+  if (lectura.existente) return
   try {
     aplicar(cwd, repo, RAMA_INTEGRACION, proteccionDev())
     ui.log.info(`"${RAMA_INTEGRACION}" en ${repo}: sin force-push ni borrado.`)
@@ -189,8 +216,13 @@ export function protegeBranchMain({ cwd }) {
     return { aplicado: false }
   }
 
+  const lectura = proteccionActual(cwd, repo, RAMA_PROTEGIDA)
+  if (lectura.error) {
+    reportaFallo(repo, lectura.err, `No se pudo leer la proteccion vigente de "${RAMA_PROTEGIDA}" en ${repo} (${lectura.error}): no se toca, para no pisar lo que haya. Reintenta con \`coe-harness upgrade\`.`)
+    return { aplicado: false }
+  }
+  const existente = lectura.existente
   try {
-    const existente = proteccionActual(cwd, repo, RAMA_PROTEGIDA)
     const cuerpo = fusionarProteccion(existente)
     aplicar(cwd, repo, RAMA_PROTEGIDA, cuerpo)
     const aprobaciones = cuerpo.required_pull_request_reviews.required_approving_review_count
@@ -201,22 +233,29 @@ export function protegeBranchMain({ cwd }) {
     protegeDev(cwd, repo)
     return { aplicado: true }
   } catch (err) {
-    const motivo = motivoDelFallo(err)
-    if (motivo === 'plan') {
-      ui.log.info(
-        `${repo} es un repo privado en un plan Free de GitHub, y GitHub no ofrece proteccion de ramas ahi: ` +
-          `"${RAMA_PROTEGIDA}" queda sin proteger del lado de GitHub. No hay nada que arreglar: el hook reglas-pr ` +
-          'sigue denegando los push a main desde la sesion. Para tener la proteccion tambien en GitHub, haz publico ' +
-          'el repo o pasa a GitHub Pro/Team y corre `coe-harness upgrade`.'
-      )
-    } else if (motivo === 'permiso') {
-      ui.log.warn(
-        `No se pudo configurar la proteccion de "${RAMA_PROTEGIDA}" en ${repo}: hace falta permiso de admin en el repo. ` +
-          'Pidele al coordinador que corra `coe-harness upgrade` o que la configure en Settings > Branches.'
-      )
-    } else {
-      ui.log.warn(`No se pudo configurar la proteccion de "${RAMA_PROTEGIDA}" en ${repo}: ${primeraLinea(err)}`)
-    }
+    reportaFallo(repo, err, `No se pudo configurar la proteccion de "${RAMA_PROTEGIDA}" en ${repo}: ${primeraLinea(err)}`)
     return { aplicado: false }
+  }
+}
+
+// El mismo fallo de gh tiene tres lecturas distintas, y el mensaje tiene que
+// dar la correcta: limitacion del plan (no hay nada que arreglar), permiso que
+// falta (lo corre el coordinador) u otra cosa (el detalle tal cual).
+function reportaFallo(repo, err, detalle) {
+  const motivo = motivoDelFallo(err)
+  if (motivo === 'plan') {
+    ui.log.info(
+      `${repo} es un repo privado en un plan Free de GitHub, y GitHub no ofrece proteccion de ramas ahi: ` +
+        `"${RAMA_PROTEGIDA}" queda sin proteger del lado de GitHub. No hay nada que arreglar: el hook reglas-pr ` +
+        'sigue denegando los push a main desde la sesion. Para tener la proteccion tambien en GitHub, haz publico ' +
+        'el repo o pasa a GitHub Pro/Team y corre `coe-harness upgrade`.'
+    )
+  } else if (motivo === 'permiso') {
+    ui.log.warn(
+      `No se pudo configurar la proteccion de "${RAMA_PROTEGIDA}" en ${repo}: hace falta permiso de admin en el repo. ` +
+        'Pidele al coordinador que corra `coe-harness upgrade` o que la configure en Settings > Branches.'
+    )
+  } else {
+    ui.log.warn(detalle)
   }
 }

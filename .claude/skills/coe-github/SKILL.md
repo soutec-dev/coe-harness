@@ -37,11 +37,18 @@ Estas no se negocian, ni siquiera en un hotfix.
 - **Nunca `git push --all` ni `--mirror`**: suben `main` y ramas que nadie revisó.
 - **Solo se pushea a `origin`.** El hook deniega cualquier push a otro remoto o
   a una URL; si de verdad hace falta, lo hace el usuario a mano.
+- **El `git push` va solo, en su propio comando.** Nada de `git commit … && git
+  push` ni `git switch … && git push`: el hook escanea los commits que existen
+  cuando corre y ensaya el push con la rama actual, así que un commit o un cambio
+  de rama en el mismo comando lo dejan ciego y pide confirmación. Primero el
+  commit (o el cambio de rama), después `git push -u origin <rama>` a secas, sin
+  `-q`, sin variables de entorno delante y sin opciones abreviadas.
 - **Si el hook pide confirmación, no confirmes a ciegas.** Lo hace cuando no
-  puede resolver con certeza a dónde va el push (caracteres que expande el
-  shell, `git -c`, `--no-verify`, opciones raras, o git no pudo ensayarlo porque
-  no hay upstream o red): reescribe el comando en su forma simple,
-  `git push -u origin <rama>`, y vuelve a intentar.
+  puede resolver con certeza a dónde va el push ni qué lleva (caracteres que
+  expande el shell, `git -c`, variables de entorno, `--no-verify`, opciones
+  desconocidas o abreviadas, un comando previo que cambia la rama o los
+  commits, o git no pudo ensayarlo porque no hay upstream o red): reescribe el
+  comando en su forma simple, `git push -u origin <rama>`, y vuelve a intentar.
 - **Nunca commitear secretos**: `.env`, `*.pem`, `*.key`, `*.pfx`, `credentials.json`,
   `secrets.json`, tokens, contraseñas, llaves privadas, connection strings.
 - **Nunca subir datos de la organización sin autorización previa**: datos
@@ -222,17 +229,18 @@ reglas:
 
 - **En la sesión, con el hook `reglas-pr` de Claude Code** (`.claude/hooks/reglas-pr.mjs`,
   no es un git hook):
-  - **Antes de cada `git push`**: deniega el push si va a `main`/`master` (o los
-    borra), si es `--force`/`-f`/`+refspec` o `--all`/`--mirror`, si el remoto no
-    es `origin`, y corre el grupo `secretos` (archivos de credenciales, llaves y
-    tokens en el contenido, datos personales o de nómina) sobre cada commit que
+  - **Antes de cada `git push`** (de todos los del comando, no solo el primero):
+    deniega el push si va a `main`/`master` (o los borra), si es
+    `--force`/`-f`/`+refspec`, `--all`/`--mirror` o el refspec `:`, si el remoto
+    no es `origin`, y corre el grupo `secretos` (archivos de credenciales, llaves
+    y tokens en el contenido, datos personales o de nómina) sobre cada commit que
     el push subiría, merges incluidos. Después le pide a git que **ensaye** el
     push (`--dry-run`) y deniega si el destino real es `main` aunque el texto no
     lo diga (upstream, `push.default`). Si falla el check, el push queda denegado
     con el motivo: sigue sus instrucciones (sacar el archivo o el contenido de
     los commits sin pushear; si ya se había pusheado, avisar al usuario para
-    rotar la credencial o tratar la filtración). Si no pudo verificar, pide
-    confirmación: no la des por él.
+    rotar la credencial o tratar la filtración). Si no pudo verificar —o se
+    quedó sin tiempo—, pide confirmación: no la des por él.
   - **Al crear el PR o editar su body o su base**: los tres grupos contra el PR
     (`rama-commits` es informativo; `secretos` y `pr-metadata` bloquean). El
     resultado se publica como comentario en el PR — la evidencia para el revisor —

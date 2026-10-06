@@ -197,12 +197,18 @@ Antes del primer release el harness pasó por su propia skill `security-audit`
 (informe en `docs/security/`). Lo que conviene saber al adoptarlo:
 
 - **El hook trabaja sobre el comando y sobre el ensayo de git.** Además de parsear
-  el texto, le pide a git que ensaye el push (`--dry-run`) y deniega si el destino
-  real es `main`, aunque el texto no lo diga (upstream, `push.default`,
-  `heads/main`). Lo que no puede resolver (expansiones del shell, `git -c`,
-  `--no-verify`) pide confirmación; nunca deja pasar en silencio. Lo que no ve:
-  alias de git definidos en `.gitconfig` y pushes hechos fuera de Claude Code; para
-  eso está la protección de `main` en GitHub, donde el plan la ofrece.
+  el texto (todos los `git push` del comando, no solo el primero), le pide a git
+  que ensaye el push (`--dry-run`, sin `-q`) y deniega si el destino real es
+  `main`, aunque el texto no lo diga (upstream, `push.default`, `heads/main`). Lo
+  que no puede resolver pide confirmación en vez de dejarlo pasar: expansiones del
+  shell, `git -c`, variables de entorno delante del push, opciones desconocidas o
+  abreviadas, `--no-verify`, `--force-with-lease`, un `git commit`, `git checkout`
+  o `export` antes del push en el mismo comando, un ensayo que falla o que no
+  informa destino, y también quedarse sin tiempo (responde antes del timeout del
+  hook, porque un hook cancelado por timeout no bloquea nada). Por eso la regla
+  de uso es **el push va solo, en su propio comando**. Lo que no ve: alias de git
+  definidos en `.gitconfig` y pushes hechos fuera de Claude Code; para eso está la
+  protección de `main` en GitHub, donde el plan la ofrece.
 - **Solo se pushea a `origin`.** Otro remoto o una URL se deniegan en la sesión.
 - **Las excepciones son del usuario.** `.datos-autorizados` vale cuando ya está en
   `dev` (el check lo lee de `origin/dev`), y los marcadores `coe:no-secreto` nuevos
@@ -219,10 +225,14 @@ Antes del primer release el harness pasó por su propia skill `security-audit`
   protegidos contra cambios y borrados; las acciones de los workflows van fijadas
   por SHA y las dependencias con versión exacta.
 - **Lo que el escaneo no detecta**: nombres sueltos, datos sin forma de patrón,
-  binarios, `.svg`, `.map`, lockfiles, líneas de más de 20 000 caracteres (se
+  binarios, `.svg`, `.map`, lockfiles, líneas de más de 8 000 caracteres (se
   avisan), secretos codificados y valores con palabras de ejemplo. Las reglas de
   `Read` frenan la tool `Read`, no `cat` en Bash: el control real es el gate de
   push más la revisión humana.
+- **Las cuentas con permiso de admin en GitHub** pueden desactivar la protección
+  de `main` o el check requerido; es la contrapartida de que `init`/`upgrade`
+  puedan configurarlos. Conviene que sean pocas, con 2FA obligatorio en la
+  organización, y que la protección se revise al transferir el repo.
 
 ## Desarrollo
 

@@ -12,11 +12,30 @@ export function backupDirName(now = new Date()) {
 }
 
 // Ninguna ruta del plan puede salir del repo: ni para escribir, ni para
-// borrar, ni para respaldar. computePlan ya descarta los dest con "..", pero
-// esto es la ultima linea, independiente de quien armo el plan.
+// borrar, ni para respaldar, ni para crear directorios. computePlan ya descarta
+// los dest con "..", pero esto es la ultima linea, independiente de quien armo
+// el plan. Se compara tambien la ruta real del directorio padre (realpath):
+// un symlink commiteado dentro del repo no puede desviar nada hacia fuera.
 function dentroDelRepo(cwd, abs) {
-  const rel = path.relative(path.resolve(cwd), path.resolve(abs))
+  const raiz = rutaReal(path.resolve(cwd))
+  const padreReal = rutaReal(path.dirname(path.resolve(abs)))
+  const objetivo = path.join(padreReal, path.basename(abs))
+  const rel = path.relative(raiz, objetivo)
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
+// realpath del tramo que exista (los directorios nuevos todavia no se pueden
+// resolver): se sube hasta el primer ancestro real y se vuelve a bajar.
+function rutaReal(abs) {
+  const faltantes = []
+  let actual = abs
+  while (!fs.existsSync(actual)) {
+    const padre = path.dirname(actual)
+    if (padre === actual) return abs
+    faltantes.unshift(path.basename(actual))
+    actual = padre
+  }
+  return path.join(fs.realpathSync.native(actual), ...faltantes)
 }
 
 function rutaSegura(cwd, abs, accion) {
@@ -37,7 +56,7 @@ export function apply({ plan, cwd, manifest, vars, detected, lock, prune = false
   const backupRoot = path.join(cwd, '.claude', backupDirName(now))
 
   for (const dir of plan.dirs) {
-    const abs = path.join(cwd, ...dir.dest.split('/'))
+    const abs = rutaSegura(cwd, path.join(cwd, ...dir.dest.split('/')), 'intento de crear un directorio')
     ensureDir(abs)
     const keep = path.join(abs, '.gitkeep')
     if (fs.readdirSync(abs).length === 0) writeFileLF(keep, '')

@@ -28,7 +28,9 @@ export function destSeguro(dest) {
   if (dest.includes('\\') || dest.startsWith('/') || /^[A-Za-z]:/.test(dest)) return false
   const partes = dest.split('/')
   if (partes.some((p) => p === '' || p === '.' || p === '..')) return false
-  if (partes[0] === '.git') return false
+  // .git en cualquier segmento y sin distinguir mayusculas: en Windows y macOS
+  // ".GIT/HEAD" es el .git/HEAD real.
+  if (partes.some((p) => p.toLowerCase() === '.git')) return false
   return true
 }
 

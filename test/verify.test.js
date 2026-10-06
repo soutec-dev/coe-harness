@@ -51,8 +51,8 @@ test('verify: los fragmentos reales de gitignore corresponden todos a base o a u
 
 test('verify: el manifest real no tiene dest inseguros, y uno con ".." o bajo .git/ es error', () => {
   assert.deepEqual(findUnsafeDests(loadManifest()), [])
-  const manifest = { files: [{ id: 'x', src: 'base/x', dest: '../x', policy: 'managed' }], obsolete: [{ dest: '.git/config', reason: 'r' }] }
-  assert.equal(findUnsafeDests(manifest).length, 2)
+  const manifest = { files: [{ id: 'x', src: 'base/x', dest: '../x', policy: 'managed' }], obsolete: [{ dest: '.git/config', reason: 'r' }], dirs: [{ dest: 'a/.GIT' }] }
+  assert.equal(findUnsafeDests(manifest).length, 3)
   assert.ok(findUnsafeDests(manifest).every((e) => e.code === 'unsafe-dest'))
 })
 

@@ -90,4 +90,42 @@ herramientas (tablero, trackers, monitor, modos). Ver
   las mutaciones por `gh api` piden confirmación.
 - **H-14** `OWNER` ya no toma el `user.name` de git por defecto.
 
+Segundo ciclo (hallazgos de la revisión final, N-01 a N-12):
+
+- **N-01 (High)** Cuatro caminos silenciosos a `main` cerrados: el refspec `:`
+  (matching) se deniega como masivo; un `git checkout`/`switch`/`config`/
+  `remote`/`branch`, un `export`, una asignación `VAR=…` o `$env:` antes del push
+  en el mismo comando, y las variables de entorno delante del push, piden
+  confirmación (el hook solo puede ensayar el estado actual); `-q`/`--quiet` se
+  quitan del ensayo (y se agrega `--verbose`), y un ensayo sin destino informado
+  pide confirmación; el ensayo corre también sin cabezas (`--delete`). Además un
+  `git commit`/`merge`/`rebase`/`reset`… antes del push pide confirmación (el
+  escaneo de secretos solo ve los commits que ya existen) y el hook revisa
+  **todos** los `git push` del comando, no solo el primero.
+- **N-02** Lista cerrada de opciones de `git push` escritas completas: una opción
+  desconocida o abreviada (`--recei=`, `--forc`) pide confirmación; cualquier
+  grupo corto con `f` fuerza (deny) y con `o` lleva push-option (ask);
+  `--force-with-lease`/`--force-if-includes` piden confirmación; `--git-dir`,
+  `--work-tree` y `--namespace` también.
+- **N-03** `.datos-autorizados` y la base se leen por el nombre completo
+  `refs/remotes/origin/dev`: un tag o rama local llamado `origin/dev` ya no la
+  sombrea.
+- **N-04** Presupuesto global de 100 s en el PreToolUse (timeout del hook 120 s):
+  cada llamada queda acotada y, agotado, pide confirmación; tope de línea bajado
+  a 8 000 caracteres.
+- **N-05** Cada regla `Bash(...)` de `settings.json` tiene su espejo
+  `PowerShell(...)`, con test.
+- **N-06** `asignacion-de-secreto` detecta claves con prefijo (`DB_PASSWORD=`,
+  `db_password:`) y en camelCase (`smtpPassword =`).
+- **N-07** Un GET fallido de la protección de `main` (que no sea 404) ya no se
+  trata como "sin protección": no se escribe encima; se conservan además
+  `app_id` de los checks, `bypass_pull_request_allowances`, `lock_branch`,
+  `block_creations` y `allow_fork_syncing`.
+- **N-08** `destSeguro` rechaza `.git` en cualquier segmento sin distinguir
+  mayúsculas; `apply` compara la ruta real (symlinks) y protege también la
+  creación de directorios; `verify` valida `manifest.dirs`.
+- **N-11** `ask` para más formas de mutación con `gh api` (`--field`,
+  `--raw-field`, `--input`).
+- **N-12** Documentado el alcance de las cuentas admin (README).
+
 [1.0.0]: https://github.com/soutec-dev/coe-harness/releases/tag/v1.0.0

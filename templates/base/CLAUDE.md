@@ -45,6 +45,10 @@ no existe y la regla se sostiene en el hook y en la revisión del coordinador.
 - Sincronizar la rama: `git fetch origin && git merge origin/dev`. **Nunca
   `git push --force`** (el hook lo deniega; `--force-with-lease` solo sobre rama
   propia y con confirmación del usuario).
+- **El `git push` va solo, en su propio comando** (`git push -u origin <rama>`,
+  sin `-q`, sin variables delante, sin encadenarlo a un `git commit` ni a un
+  cambio de rama): el hook escanea y ensaya lo que existe cuando corre, y si algo
+  en el mismo comando lo cambia, pide confirmación en vez de dejarlo pasar.
 - **Yo no mergeo PRs, no los apruebo y no creo repositorios.** Eso es del
   coordinador del proyecto. Los **tags de versión** (`vX.Y.Z` + tag móvil por major)
   los crea el workflow `tag-release.yml` al mergear el release; si el repo no tiene

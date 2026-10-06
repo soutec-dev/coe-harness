@@ -1,12 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { hashContent, normalize } from '../src/core/hash.js'
 import { render, missingVars } from '../src/core/render.js'
 import { buildBlock, upsertBlock, extractBlock, BEGIN } from '../src/core/block.js'
 import { seedMerge } from '../src/core/jsonmerge.js'
 import { lt } from '../src/core/lockfile.js'
 import { loadManifest, readTemplate } from '../src/core/manifest.js'
-import { cuerpoProteccion, motivoDelFallo, fusionarProteccion, proteccionDev } from '../src/core/github-protect.js'
+import { cuerpoProteccion, motivoDelFallo, fusionarProteccion, proteccionDev, sinProteccion } from '../src/core/github-protect.js'
 import { destSeguro } from '../src/core/plan.js'
 
 test('hash: CRLF y LF dan el mismo hash', () => {
@@ -141,24 +142,65 @@ test('fusionarProteccion: sin proteccion previa devuelve la base; con una mas es
     allow_deletions: { enabled: true },
   }
   const f = fusionarProteccion(existente)
-  assert.deepEqual(f.required_status_checks, { strict: true, checks: [{ context: 'ci' }, { context: 'reglas-pr' }] })
+  // El check existente conserva su app_id (el que lo creo); el del harness no fija ninguno.
+  assert.deepEqual(f.required_status_checks, { strict: true, checks: [{ context: 'ci', app_id: 15368 }, { context: 'reglas-pr' }] })
   assert.equal(f.required_pull_request_reviews.required_approving_review_count, 2)
   assert.equal(f.required_pull_request_reviews.require_code_owner_reviews, true)
   assert.equal(f.required_pull_request_reviews.dismiss_stale_reviews, true)
-  assert.deepEqual(f.required_pull_request_reviews.dismissal_restrictions, { users: ['coord'], teams: [] })
+  assert.deepEqual(f.required_pull_request_reviews.dismissal_restrictions, { users: ['coord'], teams: [], apps: [] })
+  assert.equal(f.required_pull_request_reviews.bypass_pull_request_allowances, undefined)
   assert.equal(f.required_conversation_resolution, true)
   assert.equal(f.required_linear_history, undefined)
+  assert.equal(f.lock_branch, undefined)
   assert.deepEqual(f.restrictions, { users: ['coord'], teams: ['core'], apps: [] })
   assert.equal(f.enforce_admins, true)
   assert.equal(f.allow_force_pushes, false)
   assert.equal(f.allow_deletions, false)
+  // Lo demas que un equipo puede haber activado tambien sobrevive.
+  const g = fusionarProteccion({
+    ...existente,
+    required_pull_request_reviews: { ...existente.required_pull_request_reviews, bypass_pull_request_allowances: { users: [], teams: [{ slug: 'bots' }], apps: [{ slug: 'renovate' }] } },
+    lock_branch: { enabled: true },
+    block_creations: { enabled: true },
+  })
+  assert.deepEqual(g.required_pull_request_reviews.bypass_pull_request_allowances, { users: [], teams: ['bots'], apps: ['renovate'] })
+  assert.equal(g.lock_branch, true)
+  assert.equal(g.block_creations, true)
   // dev: solo lo irreversible, sin PR obligatorio (el bump de version se commitea ahi).
   assert.deepEqual(proteccionDev(), { required_status_checks: null, enforce_admins: false, required_pull_request_reviews: null, restrictions: null, allow_force_pushes: false, allow_deletions: false })
 })
 
+// Un GET de la proteccion que falla no significa "sin proteccion" salvo que sea
+// un 404: con cualquier otro error el harness no escribe (pisaria lo que haya).
+test('sinProteccion: solo el 404 "Branch not protected" se lee como sin proteccion', () => {
+  assert.equal(sinProteccion({ stderr: 'gh: Branch not protected (HTTP 404)\n' }), true)
+  assert.equal(sinProteccion({ stderr: 'gh: Must have admin rights to Repository. (HTTP 403)\n' }), false)
+  assert.equal(sinProteccion({ stderr: 'gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)\n' }), false)
+  assert.equal(sinProteccion({ message: 'spawnSync gh ETIMEDOUT' }), false)
+  assert.equal(sinProteccion({ stderr: 'error connecting to api.github.com\n' }), false)
+})
+
 test('destSeguro: solo rutas relativas POSIX dentro del repo', () => {
-  for (const ok of ['CLAUDE.md', '.claude/settings.json', 'docs/decisions/x.md', 'a.b/c']) assert.equal(destSeguro(ok), true, ok)
-  for (const mal of ['../fuera.txt', 'docs/../../x', '/etc/passwd', 'C:/x', 'a\\b', '.git/HEAD', './a', 'a//b', '', null]) assert.equal(destSeguro(mal), false, String(mal))
+  for (const ok of ['CLAUDE.md', '.claude/settings.json', 'docs/decisions/x.md', 'a.b/c', '.github/workflows/x.yml', 'a/.gitkeep']) assert.equal(destSeguro(ok), true, ok)
+  for (const mal of ['../fuera.txt', 'docs/../../x', '/etc/passwd', 'C:/x', 'a\\b', '.git/HEAD', '.GIT/HEAD', 'sub/.git/config', 'sub/.Git/hooks/pre-commit', './a', 'a//b', '', null]) {
+    assert.equal(destSeguro(mal), false, String(mal))
+  }
+})
+
+// Las reglas de permisos son por tool: lo que se deniega o se pregunta para
+// Bash tiene que valer igual para la tool PowerShell, o el agente tendria una
+// via sin reglas.
+test('settings.json: cada regla Bash(...) tiene su espejo PowerShell(...)', () => {
+  const settings = JSON.parse(fs.readFileSync(new URL('../templates/base/claude/settings.json', import.meta.url), 'utf8'))
+  for (const lista of ['deny', 'allow', 'ask']) {
+    const reglas = settings.permissions[lista]
+    for (const regla of reglas.filter((r) => r.startsWith('Bash('))) {
+      assert.ok(reglas.includes(regla.replace(/^Bash\(/, 'PowerShell(')), `${lista}: falta el espejo PowerShell de ${regla}`)
+    }
+  }
+  for (const evento of ['PreToolUse', 'PostToolUse']) {
+    assert.deepEqual(settings.hooks[evento].map((h) => h.matcher).sort(), ['Bash', 'PowerShell'])
+  }
 })
 
 // Un repo privado en un plan Free no tiene branch protection: no es un permiso

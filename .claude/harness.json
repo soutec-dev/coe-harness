@@ -2,7 +2,7 @@
   "harness": "coe-harness",
   "harnessVersion": "1.0.0",
   "cliVersion": "1.0.0",
-  "installedAt": "2026-10-06T15:41:17.488Z",
+  "installedAt": "2026-10-06T16:41:24.652Z",
   "greenfield": false,
   "skills": [
     "adr-new",
@@ -37,11 +37,11 @@
     },
     ".claude/settings.json": {
       "policy": "merge-json",
-      "hash": "837903b13c84441f"
+      "hash": "cb06ed38229b54d2"
     },
     ".claude/hooks/reglas-pr.mjs": {
       "policy": "managed",
-      "hash": "ae292279a9f472dc"
+      "hash": "b37bc28731ea58db"
     },
     ".datos-autorizados": {
       "policy": "user-owned",
@@ -57,7 +57,7 @@
     },
     "scripts/check-pr-rules.mjs": {
       "policy": "managed",
-      "hash": "06ba9fc2b97c1ae5"
+      "hash": "f7f25790a494daee"
     },
     ".github/workflows/reglas-pr.yml": {
       "policy": "managed",
@@ -73,7 +73,7 @@
     },
     ".claude/skills/coe-github/SKILL.md": {
       "policy": "managed",
-      "hash": "051bbbba2b7e46c9"
+      "hash": "85e62cc0e1f6861b"
     },
     ".claude/skills/datos-sensibles/SKILL.md": {
       "policy": "managed",

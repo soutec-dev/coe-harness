@@ -51,13 +51,29 @@
       "Bash(gh pr review:*)",
       "Bash(gh release:*)",
       "Bash(gh repo create:*)",
-      "Bash(gh repo delete:*)"
+      "Bash(gh repo delete:*)",
+      "PowerShell(git push origin main*)",
+      "PowerShell(git push * main)",
+      "PowerShell(git push * *:main*)",
+      "PowerShell(git push origin master*)",
+      "PowerShell(git push * *:master*)",
+      "PowerShell(git push --all*)",
+      "PowerShell(git push --mirror*)",
+      "PowerShell(gh pr merge:*)",
+      "PowerShell(gh pr review:*)",
+      "PowerShell(gh release:*)",
+      "PowerShell(gh repo create:*)",
+      "PowerShell(gh repo delete:*)"
     ],
     "allow": [
       "Bash(git push:*)",
       "Bash(git merge:*)",
       "Bash(node scripts/check-pr-rules.mjs:*)",
-      "Bash(node .claude/hooks/reglas-pr.mjs:*)"
+      "Bash(node .claude/hooks/reglas-pr.mjs:*)",
+      "PowerShell(git push:*)",
+      "PowerShell(git merge:*)",
+      "PowerShell(node scripts/check-pr-rules.mjs:*)",
+      "PowerShell(node .claude/hooks/reglas-pr.mjs:*)"
     ],
     "ask": [
       "Bash(git reset --hard:*)",
@@ -68,10 +84,28 @@
       "Bash(git -c *)",
       "Bash(git filter-repo:*)",
       "Bash(git filter-branch:*)",
-      "Bash(gh api -X *)",
-      "Bash(gh api --method *)",
-      "Bash(gh api -f *)",
-      "Bash(gh api -F *)"
+      "Bash(gh api -X*)",
+      "Bash(gh api --method*)",
+      "Bash(gh api -f*)",
+      "Bash(gh api -F*)",
+      "Bash(gh api --field*)",
+      "Bash(gh api --raw-field*)",
+      "Bash(gh api --input*)",
+      "PowerShell(git reset --hard:*)",
+      "PowerShell(git push --force*)",
+      "PowerShell(git push -f*)",
+      "PowerShell(git push --force-with-lease*)",
+      "PowerShell(git push --no-verify*)",
+      "PowerShell(git -c *)",
+      "PowerShell(git filter-repo:*)",
+      "PowerShell(git filter-branch:*)",
+      "PowerShell(gh api -X*)",
+      "PowerShell(gh api --method*)",
+      "PowerShell(gh api -f*)",
+      "PowerShell(gh api -F*)",
+      "PowerShell(gh api --field*)",
+      "PowerShell(gh api --raw-field*)",
+      "PowerShell(gh api --input*)"
     ]
   },
   "hooks": {
@@ -82,7 +116,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 90
+            "timeout": 120
           }
         ]
       },
@@ -92,7 +126,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 90
+            "timeout": 120
           }
         ]
       }
@@ -104,7 +138,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 240
+            "timeout": 300
           }
         ]
       },
@@ -114,7 +148,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/reglas-pr.mjs\"",
-            "timeout": 240
+            "timeout": 300
           }
         ]
       }

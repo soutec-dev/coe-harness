@@ -105,9 +105,18 @@ const PATRONES_SECRETO = [
   { id: 'connection-string', re: /\b(?:Password|Pwd)\s*=\s*([^;\s"'<>]{4,})/i, valor: 1, contexto: /\b(?:Server|Data Source|Host|Initial Catalog|Database|User(?: ?Id)?|Uid)\s*=/i },
   { id: 'npm-token', re: /_authToken\s*=\s*["']?([A-Za-z0-9._-]{16,})/, valor: 1, requiere: '_authToken' },
   { id: 'bearer-token', re: /\bBearer\s+([A-Za-z0-9._\-+/=]{20,})/, valor: 1, requiere: 'Bearer' },
+  // La clave puede llevar prefijo: DB_PASSWORD=, db_password:, MYSQL_ROOT_PASSWORD
+  // (limite "no alfanumerico" en vez de \b, que trataba "_" como letra) y
+  // camelCase: smtpPassword, dbPassword (variante sensible a mayusculas aparte,
+  // porque con /i la transicion minuscula->mayuscula se diluye).
   {
     id: 'asignacion-de-secreto',
-    re: /\b(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|secret[_-]?key)\b["']?\s*(?:[:=]|=>)\s*["']?([^\s"',;]{8,})["']?/i,
+    re: /(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|secret[_-]?key)\b["']?\s*(?:[:=]|=>)\s*["']?([^\s"',;]{8,})["']?/i,
+    valor: 1,
+  },
+  {
+    id: 'asignacion-de-secreto',
+    re: /(?<=[a-z])(?:Pass(?:word|wd|phrase)?|Pwd|Secret|Token|Api[_-]?Key|ApiKey|Access[_-]?Key|Private[_-]?Key|Client[_-]?Secret|Auth[_-]?Token|Secret[_-]?Key)\b["']?\s*(?:[:=]|=>)\s*["']?([^\s"',;]{8,})["']?/,
     valor: 1,
   },
 ]
@@ -193,9 +202,10 @@ const MAX_EMAILS = 8
 // Archivos generados o compactados donde las heuristicas solo hacen ruido.
 const SIN_ESCANEO_DE_CONTENIDO = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Cargo\.lock|poetry\.lock|Gemfile\.lock|go\.sum)$|\.(min\.js|min\.css|map|svg|lock)$/
 // Una linea mas larga que esto (minificados, blobs embebidos) no se escanea:
-// las regex de correos y URLs son cuadraticas en lineas asi y vencerian el
-// timeout del hook, que entonces no podria verificar nada. Se cuenta y se avisa.
-const MAX_LINEA = 20_000
+// las regex de correos y URLs son cuadraticas en lineas asi (unos 150 ms a
+// 8 000 caracteres, ~1 s a 20 000) y un diff con muchas agotaria el tiempo del
+// hook, que entonces solo podria pedir confirmacion. Se cuenta y se avisa.
+const MAX_LINEA = 8_000
 
 export function luhn(digitos) {
   let suma = 0
@@ -268,11 +278,15 @@ export function leeAutorizados(texto) {
 // Las autorizaciones valen cuando ya estan en `dev` (la rama de integracion,
 // revisada): asi un commit no puede traer el dato y su propia exencion. Si
 // origin/dev todavia no existe (repo recien creado), vale el archivo local.
+// Siempre por el nombre completo de la ref: un tag o una rama local llamada
+// "origin/dev" ganaria la resolucion corta (DWIM) y sustituiria el archivo.
+const DEV_REMOTA = 'refs/remotes/origin/dev'
+
 function autorizadosDelRepo() {
   try {
-    return leeAutorizados(sh(['git', 'show', 'origin/dev:.datos-autorizados']))
+    return leeAutorizados(sh(['git', 'show', `${DEV_REMOTA}:.datos-autorizados`]))
   } catch {
-    if (refExiste('origin/dev')) return []
+    if (refExiste(DEV_REMOTA)) return []
     try {
       return leeAutorizados(readFileSync('.datos-autorizados', 'utf8'))
     } catch {
@@ -905,10 +919,13 @@ export function contextoDelCheck({ pr = null, envBase = '', ramaLocal = null } =
   }
 }
 
+// Nombre completo de la ref remota (refs/remotes/origin/<rama>): el nombre
+// corto "origin/<rama>" lo puede sombrear un tag o una rama local.
 function resuelveRef(nombre) {
+  const completa = `refs/remotes/origin/${nombre}`
   try {
-    sh(['git', 'rev-parse', '--verify', `origin/${nombre}`])
-    return `origin/${nombre}`
+    sh(['git', 'rev-parse', '--verify', completa])
+    return completa
   } catch {
     return nombre
   }
